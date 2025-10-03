@@ -1,0 +1,20 @@
+[Unit]
+Description=Cat Feeder Web API
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ben
+Group=ben
+WorkingDirectory=/home/ben/opener_code/web_api
+Environment=PATH=/home/ben/opener_code/web_api/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStartPre=/bin/bash -c 'cd /home/ben/opener_code/web_api && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt'
+ExecStart=/home/ben/opener_code/web_api/venv/bin/python /home/ben/opener_code/web_api/app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
