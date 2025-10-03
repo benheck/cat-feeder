@@ -482,6 +482,7 @@ void loadStateFromJSON(const std::string& filename = "machine_state.json") {
         return;
     }
     
+    
     std::string fullPath = getHomeFilePath(filename);
     
     try {
