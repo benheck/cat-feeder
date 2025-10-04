@@ -15,8 +15,8 @@ from typing import Dict, Any
 
 app = FastAPI(title="Cat Feeder API", version="1.0.0")
 
-# Path to your existing JSON state file
-STATE_FILE_PATH = "/home/ben/machine_state.json"  # Use existing file
+# Path to your existing JSON state file  
+STATE_FILE_PATH = "/home/ben/machine_state.json"  # Updated to use single JSON
 COMMAND_FILE_PATH = "/home/ben/web_commands.json"
 
 def read_state() -> Dict[str, Any]:
@@ -73,11 +73,13 @@ async def get_status():
         "feed_mode": state.get("schedule_mode", "UNKNOWN"),
         "next_feed_time": feed_time_readable,
         "next_feed_time_unix": feed_time_unix,  # Keep original for calculations
-        "operation_running": False,  # TODO: add this to your JSON if needed
+        "operation_running": state.get("machine_state", "idle") != "idle",  # Check if machine is busy
         "machine_state": state.get("machine_state", "unknown"),
         "feed_interval_minutes": int(state.get("feed_gap", 1) * 60),
         "daily_feed_hour": state.get("daily_feed_hour", 0),
         "daily_feed_minute": state.get("daily_feed_minute", 0),
+        "eject_last": state.get("eject_last", 318),  # Add Z position info
+        "z_position": state.get("z_position", 0),    # Current Z position
         "raw_state": state  # Include full state for debugging
     }
     
@@ -93,6 +95,19 @@ async def manual_feed():
     
     if write_command(command):
         return {"success": True, "message": "Manual feed command sent"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send command")
+
+@app.post("/api/eject")
+async def eject_only():
+    """Trigger eject-only operation (maintenance mode)"""
+    command = {
+        "action": "eject_only",
+        "source": "web_api"
+    }
+    
+    if write_command(command):
+        return {"success": True, "message": "Eject-only command sent"}
     else:
         raise HTTPException(status_code=500, detail="Failed to send command")
 
@@ -198,7 +213,10 @@ def get_dashboard_html() -> str:
 
         <div style="text-align: center; margin-top: 20px;">
             <button class="button" onclick="manualFeed()" id="feed-btn">
-                🍽️ Manual Feed (Test)
+                🍽️ Manual Feed
+            </button>
+            <button class="button" onclick="ejectOnly()" id="eject-btn" style="background-color: #fd7e14;">
+                📤 Eject Only
             </button>
             <button class="button" onclick="refreshStatus()">
                 🔄 Refresh
@@ -231,9 +249,11 @@ def get_dashboard_html() -> str:
                     opStatus.className = 'status-value success';
                 }
                 
-                // Disable feed button if operation is running
+                // Disable buttons if operation is running
                 const feedBtn = document.getElementById('feed-btn');
+                const ejectBtn = document.getElementById('eject-btn');
                 feedBtn.disabled = data.operation_running;
+                ejectBtn.disabled = data.operation_running;
                 
                 document.getElementById('last-updated').textContent = 
                     'Last updated: ' + new Date().toLocaleTimeString();
@@ -266,6 +286,29 @@ def get_dashboard_html() -> str:
                 console.error('Error:', error);
             } finally {
                 setTimeout(() => { feedBtn.disabled = false; }, 2000);
+            }
+        }
+
+        async function ejectOnly() {
+            const ejectBtn = document.getElementById('eject-btn');
+            ejectBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/eject', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('Eject-only command sent!', 'success');
+                    // Refresh status after a short delay
+                    setTimeout(fetchStatus, 1000);
+                } else {
+                    showMessage('Failed to send eject command', 'warning');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'warning');
+                console.error('Error:', error);
+            } finally {
+                setTimeout(() => { ejectBtn.disabled = false; }, 2000);
             }
         }
 

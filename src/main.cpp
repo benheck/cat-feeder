@@ -56,6 +56,8 @@ ScheduleMode scheduleMode = INTERVAL_MODE;
 int dailyFeedHour = 6;      // 0-23 hours
 int dailyFeedMinute = 30;   // 0, 15, 30, 45 minutes
 
+bool dailyWeekendOnly = false; // If true, feed only on weekends when in daily mode
+
 // Global shutdown flag for clean exit
 std::atomic<bool> g_shutdown_requested(false);
 
@@ -68,10 +70,27 @@ int lastFeedCheckMinute = -1;  // Track last minute we checked for feeding
 // Debug output control
 bool enableDebugOutput = true;   // Set to true to enable debug messages
 
+// Display sleep management
+std::chrono::steady_clock::time_point lastDisplayActivity;
+const int displaySleepTimeoutSeconds = 120;  // 2 minutes
+
 // Signal handler for graceful shutdown
 void signalHandler(int signal) {
     std::cout << "\nReceived signal " << signal << ". Initiating graceful shutdown..." << std::endl;
     g_shutdown_requested = true;
+}
+
+// Display activity management
+void resetDisplayActivity() {
+    lastDisplayActivity = std::chrono::steady_clock::now();
+}
+
+// Helper function to check if current day is weekend
+bool isWeekend() {
+    auto now = std::time(nullptr);
+    struct tm* timeInfo = std::localtime(&now);
+    int dayOfWeek = timeInfo->tm_wday; // 0 = Sunday, 6 = Saturday
+    return (dayOfWeek == 0 || dayOfWeek == 6); // Sunday or Saturday
 }
 
 double ejectLast = 318.00;             //CAN be adjusted in the menu
@@ -269,6 +288,17 @@ void checkButtons() {
                 button.lastState = currentState;
                 //std::cout << "Button pressed: " << button.name << " (GPIO " << button.pin << ")" << std::endl;
                 
+                // Reset display activity timer on any button press
+                resetDisplayActivity();
+                
+                // Wake display on any button press
+                if (g_display && g_display->isSleeping()) {
+                    g_display->wake();
+                    // If display was sleeping, don't execute button callback - just wake up
+                    button.lastState = currentState;
+                    continue;
+                }
+                
                 // Execute callback if it exists
                 if (button.callback) {
                     button.callback();
@@ -433,6 +463,7 @@ void saveStateToJSON(const std::string& filename = "machine_state.json") {
         file << "  \"schedule_mode\": \"" << (scheduleMode == INTERVAL_MODE ? "INTERVAL" : "DAILY") << "\",\n";
         file << "  \"daily_feed_hour\": " << dailyFeedHour << ",\n";
         file << "  \"daily_feed_minute\": " << dailyFeedMinute << ",\n";
+        file << "  \"daily_weekend_only\": " << (dailyWeekendOnly ? "true" : "false") << ",\n";
         file << "  \"timestamp\": \"" << std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count() << "\"\n";
         file << "}\n";
@@ -445,30 +476,6 @@ void saveStateToJSON(const std::string& filename = "machine_state.json") {
         // std::cout << "  Z Position: " << g_marlin->zPos << std::endl;
 
          std::cout << "---> JSON STATE SAVED" << std::endl;
-        
-        // TEMPORARILY DISABLED - Enable this to auto-save state
-        return;  // Comment out this line to re-enable auto-saving
-        
-        // Also save a copy for the web API (non-destructive addition)
-        if (filename == "machine_state.json") {
-            std::string webApiPath = getHomeFilePath("feeder_state.json");
-            std::ofstream webFile(webApiPath);
-            if (webFile.is_open()) {
-                webFile << "{\n";
-                webFile << "  \"machineState\": \"" << machineStateToString(machineState) << "\",\n";
-                webFile << "  \"cansLeft\": " << cansLoaded << ",\n";
-                webFile << "  \"feedMode\": \"" << (scheduleMode == INTERVAL_MODE ? "INTERVAL" : "DAILY") << "\",\n";
-                webFile << "  \"feedTime\": " << feedTime << ",\n";
-                webFile << "  \"feedIntervalMinutes\": " << (int)(feedGap * 60) << ",\n";
-                webFile << "  \"operationRunning\": " << (operationRunning ? "true" : "false") << ",\n";
-                webFile << "  \"dailyFeedHour\": " << dailyFeedHour << ",\n";
-                webFile << "  \"dailyFeedMinute\": " << dailyFeedMinute << ",\n";
-                webFile << "  \"timestamp\": " << std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count() << "\n";
-                webFile << "}\n";
-                webFile.close();
-            }
-        }
         
     } catch (const std::exception& e) {
         std::cerr << "Error saving state: " << e.what() << std::endl;
@@ -502,6 +509,7 @@ void loadStateFromJSON(const std::string& filename = "machine_state.json") {
         std::string schedule_mode_str = "INTERVAL";  // Default value
         int daily_feed_hour_value = 6;   // Default value
         int daily_feed_minute_value = 30; // Default value
+        bool daily_weekend_only_value = false; // Default value
         
         // Simple JSON parsing (very basic - assumes specific format)
         while (std::getline(file, line)) {
@@ -598,6 +606,15 @@ void loadStateFromJSON(const std::string& filename = "machine_state.json") {
                 minute_str.erase(minute_str.find_last_not_of(" \t,") + 1);
                 daily_feed_minute_value = std::stoi(minute_str);
             }
+            else if (line.find("\"daily_weekend_only\":") != std::string::npos) {
+                size_t start = line.find(":") + 1;
+                size_t comma = line.find(",", start);
+                if (comma == std::string::npos) comma = line.length();
+                std::string weekend_str = line.substr(start, comma - start);
+                weekend_str.erase(0, weekend_str.find_first_not_of(" \t"));
+                weekend_str.erase(weekend_str.find_last_not_of(" \t,") + 1);
+                daily_weekend_only_value = (weekend_str == "true");
+            }
         }
         
         file.close();
@@ -614,6 +631,7 @@ void loadStateFromJSON(const std::string& filename = "machine_state.json") {
         scheduleMode = (schedule_mode_str == "DAILY") ? DAILY_MODE : INTERVAL_MODE;
         dailyFeedHour = daily_feed_hour_value;
         dailyFeedMinute = daily_feed_minute_value;
+        dailyWeekendOnly = daily_weekend_only_value;
         openLast = ejectLast - 21;       // Recalculate openLast based on loaded ejectLast
         
         std::cout << "State loaded from " << fullPath << std::endl;
@@ -869,19 +887,37 @@ void phase9_z_next_can_state(bool reset = false) {
     if (!started) {
         std::cout << "Entering phase 9: Z Next Can..." << std::endl;
         started = true;
-        double currentZ = g_marlin->zPos;
-        currentZ += nextCan;
-        g_marlin->moveZTo(currentZ);
+        
+        // Check if this is the last can - if so, skip Z movement as there's no next can to position
+        if (cansLoaded <= 1) {
+            std::cout << "Last can ejected - skipping Z positioning" << std::endl;
+            // Go directly to completion without moving Z
+        } else {
+            double currentZ = g_marlin->zPos;
+            currentZ += nextCan;
+            g_marlin->moveZTo(currentZ);
+        }
         saveStateToJSON();
         return;
     }
 
-    if (g_marlin->getState() == MarlinController::idle) {
+    // If we skipped the Z movement (last can), or if Z movement is complete
+    if (cansLoaded <= 1 || g_marlin->getState() == MarlinController::idle) {
         std::cout << "Phase 9 complete: Z Next Can" << std::endl;
         std::cout << "---FEED SEQUENCE COMPLETE---" << std::endl;
-        machineState = idle;
-        started = false;  // Reset for next time
+        
+        // Decrement can count and ensure proper final state
         cansLoaded--;
+        std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
+        std::cout << "Final Z position: " << g_marlin->zPos << "mm" << std::endl;
+        
+        // IMPORTANT: Reset Marlin to idle state
+        g_marlin->setState(MarlinController::idle);
+        std::cout << "Marlin state reset to: " << marlinStateToString(g_marlin->getState()) << std::endl;
+        
+        machineState = idle;
+        operationRunning = false;  // Clear operation flag
+        started = false;  // Reset for next time
         saveStateToJSON();
     }
 }
@@ -954,6 +990,12 @@ void dispenseFoodStart() {
 
     std::cout << "Starting food dispense operation..." << std::endl;
     
+    // Reset display activity and wake display for operation
+    resetDisplayActivity();
+    if (g_display && g_display->isSleeping()) {
+        g_display->wake();
+    }
+    
     // Turn on main fan at 100% for dispense operation
     if (g_marlin) {
         g_marlin->setFanSpeed(0, 100);  // Fan 0 at 100%
@@ -989,6 +1031,12 @@ void ejectOnlyStart() {
 
     std::cout << "Starting eject only operation..." << std::endl;
     
+    // Reset display activity and wake display for operation
+    resetDisplayActivity();
+    if (g_display && g_display->isSleeping()) {
+        g_display->wake();
+    }
+    
     // Turn on main fan at 100% for dispense operation
     if (g_marlin) {
         g_marlin->setFanSpeed(0, 100);  // Fan 0 at 100%
@@ -997,8 +1045,16 @@ void ejectOnlyStart() {
     
     // Reset all phase static variables
     resetAllPhases();
-    std::cout << "Jumping to phase 6..." << std::endl;
-    machineState = phase6_z_lift_to_eject;
+    
+    // Calculate the eject position: current can open position + lift amount
+    double currentCanOpenZ = setCanOpenOffset();  // Get current can's open position
+    double ejectZ = currentCanOpenZ + canToEject;  // Add 21mm for eject height
+    
+    std::cout << "Moving Z to eject position: " << ejectZ << "mm" << std::endl;
+    g_marlin->moveZTo(ejectZ);  // Move directly to eject position
+    
+    std::cout << "Jumping to phase 7..." << std::endl;
+    machineState = phase7_x_eject;  // Skip phase 6, go directly to X eject
     saveStateToJSON();
 
 }
@@ -1195,7 +1251,11 @@ void displaySettingsMenu() {
             g_display->drawString(0, 32, (menuSelection == 3 ? ">" : " ") + std::string("4.Time:") + timeStr);
         }
         
-        g_display->drawString(0, 48, "L:back OK:set");
+        // Option 5: Weekend only mode for daily feeding
+        std::string weekendText = dailyWeekendOnly ? "ON" : "OFF";
+        g_display->drawString(0, 40, (menuSelection == 4 ? ">" : " ") + std::string("5.Weekend:") + weekendText);
+        
+        g_display->drawString(0, 56, "L:back OK:set");
         g_display->display();
     }
 }
@@ -1402,6 +1462,14 @@ void checkWebCommands() {
             } else {
                 std::cout << "Web API: Cannot start manual feed - machine busy or not ready" << std::endl;
             }
+        } else if (action == "eject_only") {
+            std::cout << "Web API: Eject-only command received" << std::endl;
+            if (!operationRunning && machineState == idle && startupSequenceComplete) {
+                std::cout << "Web API: Starting eject-only operation..." << std::endl;
+                ejectOnlyStart(); // Eject without dispensing
+            } else {
+                std::cout << "Web API: Cannot start eject-only - machine busy or not ready" << std::endl;
+            }
         }
         
         // Delete the command file after processing
@@ -1429,7 +1497,7 @@ void buttonUpPressed() {
             displayCommandsMenu();
             break;
         case SETTINGS_MENU:
-            menuSelection = (menuSelection > 0) ? menuSelection - 1 : 3;
+            menuSelection = (menuSelection > 0) ? menuSelection - 1 : 4;
             displaySettingsMenu();
             break;
         case LOAD_CAN_MENU:
@@ -1489,7 +1557,7 @@ void buttonDownPressed() {
             displayCommandsMenu();
             break;
         case SETTINGS_MENU:
-            menuSelection = (menuSelection < 3) ? menuSelection + 1 : 0;
+            menuSelection = (menuSelection < 4) ? menuSelection + 1 : 0;
             displaySettingsMenu();
             break;
         case LOAD_CAN_MENU:
@@ -1647,10 +1715,20 @@ void buttonOkPressed() {
                 case 2: // Load Can
                     if (cansLoaded < 6) {
                         canLoadSequence = true;
-                        machineState = canLoad_step_1;
-                        currentMenu = LOAD_CAN_MENU;
-                        menuSelection = 0;
-                        displayLoadCanMenu();
+                        
+                        // If no cans loaded, skip step 1 (moving cans down) and go directly to step 2
+                        if (cansLoaded == 0) {
+                            machineState = canLoad_step_2;
+                            currentMenu = LOAD_CAN_INSERT_MENU;
+                            menuSelection = 0;
+                            displayLoadCanInsertMenu();
+                            std::cout << "No cans to move down - skipping to load step" << std::endl;
+                        } else {
+                            machineState = canLoad_step_1;
+                            currentMenu = LOAD_CAN_MENU;
+                            menuSelection = 0;
+                            displayLoadCanMenu();
+                        }
                     }
 
                     break;
@@ -1729,6 +1807,11 @@ void buttonOkPressed() {
                     }
                     displayScheduleTimeMenu();
                     break;
+                case 4: // Weekend Only Toggle
+                    dailyWeekendOnly = !dailyWeekendOnly;
+                    std::cout << "Daily weekend only mode: " << (dailyWeekendOnly ? "ON" : "OFF") << std::endl;
+                    displaySettingsMenu();
+                    break;
             }
             break;
             
@@ -1777,12 +1860,50 @@ void buttonOkPressed() {
             break;
             
         case LOAD_CAN_INSERT_MENU:
-            if (g_marlin->getCurrentState() == MarlinController::idle) {    //Wait for step
-                cansLoaded += 1;        //Inc this
-                g_marlin->moveZTo(setCanOpenOffset());  // Move new can to next open z height
+            // Check Marlin state and debug
+            std::cout << "=== LOAD CAN DEBUG ===" << std::endl;
+            std::cout << "Marlin current state: " << marlinStateToString(g_marlin->getCurrentState()) << std::endl;
+            std::cout << "Marlin internal state: " << marlinStateToString(g_marlin->getState()) << std::endl;
+            std::cout << "Current Z position: " << g_marlin->zPos << "mm" << std::endl;
+            std::cout << "Current cansLoaded: " << cansLoaded << std::endl;
+            
+            // Only process if Marlin is idle (not currently moving)
+            if (g_marlin->getCurrentState() == MarlinController::idle) {
+                std::cout << "Marlin is IDLE - proceeding with load..." << std::endl;
+                std::cout << "Loading can into feeder..." << std::endl;
+                
+                cansLoaded += 1;        // Increment can count
+                std::cout << "Updated cansLoaded: " << cansLoaded << std::endl;
+                
+                double targetZ = setCanOpenOffset();  // Calculate new position for the loaded can
+                
+                std::cout << "Target Z position: " << targetZ << "mm" << std::endl;
+                std::cout << "Z movement needed: " << (targetZ - g_marlin->zPos) << "mm" << std::endl;
+                
+                if (abs(targetZ - g_marlin->zPos) > 0.1) {  // Only move if difference > 0.1mm
+                    std::cout << "Significant movement required - calling moveZTo(" << targetZ << ")" << std::endl;
+                    g_marlin->moveZTo(targetZ);  // Move new can to correct open position
+                    
+                    // Wait a brief moment for the move to start
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    
+                    std::cout << "Movement command sent. New Marlin state: " << marlinStateToString(g_marlin->getCurrentState()) << std::endl;
+                } else {
+                    std::cout << "Movement too small (" << abs(targetZ - g_marlin->zPos) << "mm) - skipping" << std::endl;
+                }
+                
+                std::cout << "Can loading complete!" << std::endl;
+                
+                // Reset machine state to idle after successful can loading
+                machineState = idle;
+                saveStateToJSON();  // Save the updated state
+                
                 currentMenu = MAIN_MENU;
                 menuSelection = 2;      // Position cursor on "3.Load Can" for easy repeated loading
                 displayMainMenu();
+            } else {
+                std::cout << "Marlin is NOT IDLE - cannot proceed with load" << std::endl;
+                std::cout << "Press OK again when Marlin is ready" << std::endl;
             }
             break;
             
@@ -1879,6 +2000,9 @@ int main() {
         } else {
             std::cout << "Warning: Display initialization failed" << std::endl;
         }
+        
+        // Initialize display activity timer
+        resetDisplayActivity();
 
         // Initialize GPIO buttons
         initAllButtons();
@@ -1887,6 +2011,10 @@ int main() {
 
         // Safety check: Ensure Z position is safe after loading state
         setCanOpenOffset(true);     //This will apply the safety limit and update Marlin
+
+        // Override loaded machine state - we always need to do Z homing on startup
+        machineState = initial_z_homing;
+        std::cout << "Forcing initial Z homing sequence..." << std::endl;
 
         // Safety check: If loaded feed time is in the past, reschedule appropriately
         if (feedTime > 0) {
@@ -2001,21 +2129,31 @@ int main() {
                 std::time_t currentTime = std::chrono::system_clock::to_time_t(now);
                 
                 if (currentTime >= feedTime) {
-                    std::cout << "*** DEBUG: Time to feed detected! (current: " << currentTime 
-                              << ", feed: " << feedTime << ") ***" << std::endl;
+                    // Check weekend restriction for daily mode
+                    bool shouldSkipWeekend = (scheduleMode == DAILY_MODE && dailyWeekendOnly && !isWeekend());
                     
-                    // Advance feed time to prevent repeated triggering
-                    if (scheduleMode == DAILY_MODE) {
-                        feedTime += 24 * 3600; // Add 24 hours for tomorrow
-                        std::cout << "*** DEBUG: Advanced daily feed time to tomorrow ***" << std::endl;
+                    if (shouldSkipWeekend) {
+                        std::cout << "*** Skipping daily feed - weekend-only mode, today is weekday ***" << std::endl;
+                        // Skip this feed and advance to tomorrow
+                        feedTime += 24 * 3600; // Add 24 hours for next day
+                        saveStateToJSON();
                     } else {
-                        feedTime = currentTime + (feedGap * 3600); // Add interval
-                        std::cout << "*** DEBUG: Advanced interval feed time by " << feedGap << " hours ***" << std::endl;
+                        std::cout << "*** DEBUG: Time to feed detected! (current: " << currentTime 
+                                  << ", feed: " << feedTime << ") ***" << std::endl;
+                        
+                        // Start feeding routine
+                        dispenseFoodStart();
+                        
+                        // Advance feed time for next feeding
+                        if (scheduleMode == DAILY_MODE) {
+                            feedTime += 24 * 3600; // Add 24 hours for tomorrow
+                            std::cout << "*** DEBUG: Advanced daily feed time to tomorrow ***" << std::endl;
+                        } else {
+                            feedTime = currentTime + (feedGap * 3600); // Add interval
+                            std::cout << "*** DEBUG: Advanced interval feed time by " << feedGap << " hours ***" << std::endl;
+                        }
+                        saveStateToJSON(); // Save the new feed time
                     }
-                    saveStateToJSON(); // Save the new feed time
-                    
-                    // TODO: Start feeding routine here
-                    dispenseFoodStart();  // Feed time already advanced above
 
                 }
             }
@@ -2064,12 +2202,21 @@ int main() {
                 }
             }
 
-            // Update clock display every second when on clock screen
-            if (currentMenu == CLOCK_SCREEN) {
+            // Update clock display every second when on clock screen (but not if sleeping)
+            if (currentMenu == CLOCK_SCREEN && g_display && !g_display->isSleeping()) {
                 auto now = std::chrono::steady_clock::now();
                 if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastClockUpdate).count() >= 1000) {
                     displayClockScreen();
                     lastClockUpdate = now;
+                }
+            }
+            
+            // Check display sleep timer
+            if (g_display && !g_display->isSleeping()) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastDisplayActivity);
+                if (elapsed.count() >= displaySleepTimeoutSeconds) {
+                    g_display->sleep();
                 }
             }
             

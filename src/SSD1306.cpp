@@ -107,7 +107,8 @@ static const uint8_t font8x8[][8] = {
 };
 
 SSD1306::SSD1306(uint8_t address, uint8_t w, uint8_t h) 
-    : i2c_fd(-1), i2c_addr(address), width(w), height(h), buffer(nullptr) {
+    : i2c_fd(-1), i2c_addr(address), width(w), height(h), buffer(nullptr),
+      sleeping(false) {
     buffer = new uint8_t[(width * height) / 8];
     memset(buffer, 0, (width * height) / 8);
 }
@@ -193,6 +194,11 @@ void SSD1306::clear() {
 }
 
 void SSD1306::display() {
+    // Wake display if sleeping (but don't reset activity timer here)
+    if (sleeping) {
+        wake();
+    }
+    
     // Set column and page address
     writeCommand(SSD1306_COLUMNADDR);
     writeCommand(0);
@@ -263,4 +269,21 @@ void SSD1306::printLine(uint8_t line, const std::string& text, bool invert) {
 void SSD1306::printMenuLine(uint8_t line, const std::string& text, bool selected) {
     std::string prefix = selected ? "> " : "  ";
     printLine(line, prefix + text, selected);
+}
+
+// Sleep/wake functionality
+void SSD1306::sleep() {
+    if (!sleeping && i2c_fd >= 0) {
+        writeCommand(SSD1306_DISPLAYOFF);
+        sleeping = true;
+        std::cout << "OLED display sleeping" << std::endl;
+    }
+}
+
+void SSD1306::wake() {
+    if (sleeping && i2c_fd >= 0) {
+        writeCommand(SSD1306_DISPLAYON);
+        sleeping = false;
+        std::cout << "OLED display waking" << std::endl;
+    }
 }

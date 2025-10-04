@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <string>
+#include <chrono>
 
 class SSD1306 {
 private:
@@ -11,6 +12,9 @@ private:
     uint8_t width;
     uint8_t height;
     uint8_t* buffer;
+    
+    // Sleep functionality
+    bool sleeping;
     
     // SSD1306 Commands
     static constexpr uint8_t SSD1306_SETCONTRAST = 0x81;
@@ -59,6 +63,11 @@ public:
     void clearLine(uint8_t line);
     void printLine(uint8_t line, const std::string& text, bool invert = false);
     void printMenuLine(uint8_t line, const std::string& text, bool selected = false);
+    
+    // Sleep/wake functionality
+    void sleep();
+    void wake();
+    bool isSleeping() const { return sleeping; }
     
     uint8_t getWidth() const { return width; }
     uint8_t getHeight() const { return height; }
