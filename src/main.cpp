@@ -1386,6 +1386,7 @@ void abortOperation() {
             // Also turn off fans
             g_marlin->setFanSpeed(0, 0);
             g_marlin->setFanSpeed(1, 0);
+            fanStopTime = 0;  // Reset fan timer
         }
         
         operationRunning = false;
@@ -1472,16 +1473,6 @@ void checkWebCommands() {
             }
         } else if (action == "terminate") {
             std::cout << "Web API: Terminate command received - initiating graceful shutdown..." << std::endl;
-            
-            // Try to stop the systemd service to prevent auto-restart
-            std::cout << "Attempting to stop systemd service..." << std::endl;
-            int result = system("sudo systemctl stop cat-feeder 2>/dev/null");
-            if (result == 0) {
-                std::cout << "Systemd service stopped successfully" << std::endl;
-            } else {
-                std::cout << "Could not stop systemd service (may not be installed or running)" << std::endl;
-            }
-            
             g_shutdown_requested = true;
         }
         
@@ -2000,6 +1991,12 @@ int main() {
     try {
         MarlinController marlin("/dev/ttyACM0", 115200); // Adjust port as needed
         g_marlin = &marlin;  // Set global pointer
+
+        // Turn off fans on startup (in case they were left on from previous session)
+        std::cout << "Turning off fans on startup..." << std::endl;
+        g_marlin->setFanSpeed(0, 0);  // Fan 0 off
+        g_marlin->setFanSpeed(1, 0);  // Fan 1 off
+        fanStopTime = 0;              // Reset fan timer
 
         // Initialize display
         SSD1306 display(0x3C);  // Initialize with I2C address 0x3C
