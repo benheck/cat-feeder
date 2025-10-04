@@ -636,6 +636,18 @@ double setCanOpenOffset(bool sendToMarlin = false) {  //Calcs Z for opening the 
     openLast = ejectLast - 21;      //Update this
     double offset = (openLast + cartridgeHeight) - (cansLoaded * cartridgeHeight);
 
+    // Safety check: If no cans loaded or offset would exceed ejectLast (318mm), 
+    // limit Z to ejectLast position to prevent mechanical damage
+    if (cansLoaded == 0 || offset > ejectLast) {
+        offset = ejectLast;
+        std::cout << "WARNING: Z offset limited to ejectLast (" << ejectLast << "mm) - ";
+        if (cansLoaded == 0) {
+            std::cout << "no cans loaded" << std::endl;
+        } else {
+            std::cout << "calculated offset (" << ((openLast + cartridgeHeight) - (cansLoaded * cartridgeHeight)) << "mm) exceeds limit" << std::endl;
+        }
+    }
+
     if (sendToMarlin && g_marlin) {
         g_marlin->setZPosOffsetStart(offset);
     }
@@ -1872,6 +1884,9 @@ int main() {
         initAllButtons();
 
         loadStateFromJSON();        //Get this (z offset and can count)
+
+        // Safety check: Ensure Z position is safe after loading state
+        setCanOpenOffset(true);     //This will apply the safety limit and update Marlin
 
         // Safety check: If loaded feed time is in the past, reschedule appropriately
         if (feedTime > 0) {
