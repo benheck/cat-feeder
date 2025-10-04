@@ -268,10 +268,9 @@ def get_dashboard_html() -> str:
                 // Disable buttons if operation is running
                 const feedBtn = document.getElementById('feed-btn');
                 const ejectBtn = document.getElementById('eject-btn');
-                const terminateBtn = document.getElementById('terminate-btn');
                 feedBtn.disabled = data.operation_running;
                 ejectBtn.disabled = data.operation_running;
-                // Don't disable terminate button - should always be available for emergency stop
+                // Terminate button is never disabled - always available for emergency stop
                 
                 document.getElementById('last-updated').textContent = 
                     'Last updated: ' + new Date().toLocaleTimeString();

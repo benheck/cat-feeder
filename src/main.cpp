@@ -1472,6 +1472,16 @@ void checkWebCommands() {
             }
         } else if (action == "terminate") {
             std::cout << "Web API: Terminate command received - initiating graceful shutdown..." << std::endl;
+            
+            // Try to stop the systemd service to prevent auto-restart
+            std::cout << "Attempting to stop systemd service..." << std::endl;
+            int result = system("sudo systemctl stop cat-feeder 2>/dev/null");
+            if (result == 0) {
+                std::cout << "Systemd service stopped successfully" << std::endl;
+            } else {
+                std::cout << "Could not stop systemd service (may not be installed or running)" << std::endl;
+            }
+            
             g_shutdown_requested = true;
         }
         
