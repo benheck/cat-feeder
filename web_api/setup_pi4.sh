@@ -1,9 +1,27 @@
 #!/bin/bash
 
-# Pi4 Setup Script for Cat Feeder Web API
-# This creates a proper virtual environment instead of global installation
+# Pi4 Complete Setup Script for Cat Feeder
+# This installs all dependencies for both C++ application and Python web API
 
-echo "Setting up Cat Feeder Web API for Pi4..."
+echo "Setting up Cat Feeder complete system for Pi4..."
+
+# Install required system packages
+echo "Installing system dependencies..."
+sudo apt update
+sudo apt install -y \
+    build-essential \
+    cmake \
+    git \
+    libgpiod-dev \
+    libi2c-dev \
+    i2c-tools \
+    python3 \
+    python3-pip \
+    python3-venv
+
+# Enable I2C interface
+echo "Enabling I2C interface..."
+sudo raspi-config nonint do_i2c 0
 
 # Navigate to web API directory
 cd /home/ben/opener_code/web_api
