@@ -1470,6 +1470,9 @@ void checkWebCommands() {
             } else {
                 std::cout << "Web API: Cannot start eject-only - machine busy or not ready" << std::endl;
             }
+        } else if (action == "terminate") {
+            std::cout << "Web API: Terminate command received - initiating graceful shutdown..." << std::endl;
+            g_shutdown_requested = true;
         }
         
         // Delete the command file after processing

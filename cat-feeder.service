@@ -1,0 +1,25 @@
+[Unit]
+Description=Cat Feeder Control System
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ben
+Group=ben
+WorkingDirectory=/home/ben/opener_code/build/bin
+ExecStart=/home/ben/opener_code/build/bin/opnr
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables
+Environment=HOME=/home/ben
+Environment=USER=ben
+
+# Ensure I2C permissions
+SupplementaryGroups=i2c gpio
+
+[Install]
+WantedBy=multi-user.target

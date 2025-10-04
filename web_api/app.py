@@ -111,6 +111,19 @@ async def eject_only():
     else:
         raise HTTPException(status_code=500, detail="Failed to send command")
 
+@app.post("/api/terminate")
+async def terminate_system():
+    """Terminate the cat feeder control system"""
+    command = {
+        "action": "terminate",
+        "source": "web_api"
+    }
+    
+    if write_command(command):
+        return {"success": True, "message": "Terminate command sent - system will shut down"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send terminate command")
+
 @app.get("/api/health")
 async def health_check():
     """Simple health check endpoint"""
@@ -221,6 +234,9 @@ def get_dashboard_html() -> str:
             <button class="button" onclick="refreshStatus()">
                 🔄 Refresh
             </button>
+            <button class="button" onclick="terminateSystem()" id="terminate-btn" style="background-color: #dc3545;">
+                🛑 Terminate System
+            </button>
         </div>
         
         <div class="last-updated" id="last-updated"></div>
@@ -252,8 +268,10 @@ def get_dashboard_html() -> str:
                 // Disable buttons if operation is running
                 const feedBtn = document.getElementById('feed-btn');
                 const ejectBtn = document.getElementById('eject-btn');
+                const terminateBtn = document.getElementById('terminate-btn');
                 feedBtn.disabled = data.operation_running;
                 ejectBtn.disabled = data.operation_running;
+                // Don't disable terminate button - should always be available for emergency stop
                 
                 document.getElementById('last-updated').textContent = 
                     'Last updated: ' + new Date().toLocaleTimeString();
@@ -309,6 +327,33 @@ def get_dashboard_html() -> str:
                 console.error('Error:', error);
             } finally {
                 setTimeout(() => { ejectBtn.disabled = false; }, 2000);
+            }
+        }
+
+        async function terminateSystem() {
+            if (!confirm('Are you sure you want to terminate the cat feeder system? This will shut down the control program.')) {
+                return;
+            }
+            
+            const terminateBtn = document.getElementById('terminate-btn');
+            terminateBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/terminate', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('Terminate command sent! System shutting down...', 'warning');
+                    // Stop auto-refresh since system is terminating
+                    stopAutoRefresh();
+                } else {
+                    showMessage('Failed to send terminate command', 'warning');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'warning');
+                console.error('Error:', error);
+            } finally {
+                setTimeout(() => { terminateBtn.disabled = false; }, 5000);
             }
         }
 
