@@ -1,0 +1,73 @@
+cd /home/ben/opener_code/web_api && python3 -m pip install fastapi uvicorn --break-system-packages
+
+cd /home/ben/opener_code/web_api
+./start.sh
+
+
+cd /home/ben/opener_code/web_api
+./install_service.sh
+
+
+sudo systemctl start cat-feeder-web    # Start now
+sudo systemctl stop cat-feeder-web     # Stop
+sudo systemctl status cat-feeder-web   # Check status
+sudo journalctl -u cat-feeder-web -f   # View logs
+
+pkill -f "python.*app.py"
+
+
+# Edit your code normally
+nano /home/ben/opener_code/web_api/app.py
+
+# Restart the service to apply changes
+sudo systemctl restart cat-feeder-web
+
+# Edit your code
+nano /home/ben/opener_code/src/main.cpp
+
+# Rebuild
+cd /home/ben/opener_code/build
+make
+
+# Restart your C++ application (however you normally run it)
+
+# Temporarily stop the service
+sudo systemctl stop cat-feeder-web
+
+# Run manually for testing/debugging
+cd /home/ben/opener_code/web_api
+./start.sh
+
+# Make changes, test, repeat...
+
+# When done, restart the service
+sudo systemctl start cat-feeder-web
+
+sudo systemctl restart cat-feeder-web  # Apply Python changes
+sudo systemctl status cat-feeder-web   # Check if it's running
+sudo journalctl -u cat-feeder-web -f   # View live logs
+
+
+# Check service status
+sudo systemctl status cat-feeder-web.service
+
+# View logs
+sudo journalctl -u cat-feeder-web.service -f
+
+# Test the web interface
+curl http://localhost:8000
+
+# Stop the service
+sudo systemctl stop cat-feeder-web.service
+
+# Edit files, then restart
+sudo systemctl start cat-feeder-web.service
+
+sudo ./install_service.sh
+
+sudo systemctl status cat-feeder
+sudo journalctl -u cat-feeder -f
+sudo ./remove_service.sh
+
+
+
