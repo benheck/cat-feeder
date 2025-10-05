@@ -1085,9 +1085,9 @@ void canLoadStartPhase1() {
 
 void canLoadStartPhase2() {
     machineState = canLoad_step_2;      //Set state
-    double currentZ = g_marlin->zPos;   //Get zPos
-    currentZ -= canToEject;             //Set target to -21mm from current (to make this can level to be opened)
-    g_marlin->moveZTo(currentZ);        //Send that command
+    double currentZ = g_marlin->zPos;   //Get current Z position
+    currentZ -= canToEject;             //Move stack down by 21mm (canToEject = 21mm)
+    g_marlin->moveZTo(currentZ);        //Send movement command
     saveStateToJSON();                  //Save state
 }
 
@@ -1131,9 +1131,10 @@ void canLoad_step_1_state(bool reset = false) {
         started = false;
         saveStateToJSON();
         
-        // ✅ REFRESH STEP 1 MENU - user can manually advance with OK
+        // ✅ AUTO-ADVANCE TO STEP 2 MENU - better UX
+        currentMenu = LOAD_CAN_STEP_2;
         displayLoadCanMenuStep2();
-        std::cout << "Step 1 complete. Load new can, then press OK for step 2." << std::endl;
+        std::cout << "Step 1 complete. Load new can, then press OK to complete." << std::endl;
     }
 }
 
