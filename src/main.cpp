@@ -132,7 +132,7 @@ void buttonOkPressed();
 
 // Forward declarations for display functions
 std::string getFeedTimeString();
-void displayLoadCanInsertMenu();
+void displayLoadCanMenuStep2();
 void displayMainMenu();
 
 // Forward declarations for can loading state functions
@@ -1075,23 +1075,20 @@ void ejectOnlyStart() {
 
 }
 
-void canLoadSequenceStart() {
-    std::cout << "Starting can load sequence..." << std::endl;
-    
-    // Step 1: Move existing cans down (if any exist)
-    if (cansLoaded > 0) {
-        std::cout << "Moving existing cans down by " << nextCan << "mm..." << std::endl;
-        machineState = canLoad_step_1;
-        double currentZ = g_marlin->zPos;
-        currentZ -= nextCan;  // Move down to make room for new can
-        g_marlin->moveZTo(currentZ);
-        saveStateToJSON();
-    } else {
-        std::cout << "No existing cans - Z tray already in correct position" << std::endl;
-        // Skip step 1, go directly to step 2
-        machineState = canLoad_step_2;
-        saveStateToJSON();
-    }
+void canLoadStartPhase1() {
+    machineState = canLoad_step_1;      //Set state
+    double currentZ = g_marlin->zPos;   //Get zPos
+    currentZ -= nextCan;                //Set target to -37mm from current
+    g_marlin->moveZTo(currentZ);        //Send that command
+    saveStateToJSON();                  //Save state
+}
+
+void canLoadStartPhase2() {
+    machineState = canLoad_step_2;      //Set state
+    double currentZ = g_marlin->zPos;   //Get zPos
+    currentZ -= canToEject;             //Set target to -21mm from current (to make this can level to be opened)
+    g_marlin->moveZTo(currentZ);        //Send that command
+    saveStateToJSON();                  //Save state
 }
 
 
@@ -1106,8 +1103,8 @@ enum MenuState {
     COMMANDS_MENU,
     SETTINGS_MENU,
     ADJUST_Z_MENU,
-    LOAD_CAN_MENU,
-    LOAD_CAN_INSERT_MENU,
+    LOAD_CAN_STEP_1,
+    LOAD_CAN_STEP_2,
     SCHEDULE_MODE_MENU,
     SCHEDULE_TIME_MENU,
     RUNNING_OPERATION
@@ -1133,8 +1130,8 @@ void canLoad_step_1_state(bool reset = false) {
         saveStateToJSON();
         
         // Update menu to step 2
-        currentMenu = LOAD_CAN_INSERT_MENU;
-        displayLoadCanInsertMenu();
+        currentMenu = LOAD_CAN_STEP_2;
+        displayLoadCanMenuStep2();
     }
 }
 
@@ -1393,7 +1390,7 @@ void displayScheduleTimeMenu() {
 }
 
 // LOAD CAN Menu - First level: Move existing cans down
-void displayLoadCanMenu() {
+void displayLoadCanMenuStep1() {
     if (g_display) {
         g_display->clear();
         g_display->drawString(0, 0, "CAN LOADING");
@@ -1406,7 +1403,7 @@ void displayLoadCanMenu() {
 }
 
 // LOAD CAN Menu - Second level: Lower inserted can
-void displayLoadCanInsertMenu() {
+void displayLoadCanMenuStep2() {
     if (g_display) {
         g_display->clear();
         g_display->drawString(0, 0, "CAN LOADING");
@@ -1590,10 +1587,10 @@ void buttonUpPressed() {
             menuSelection = (menuSelection > 0) ? menuSelection - 1 : 4;
             displaySettingsMenu();
             break;
-        case LOAD_CAN_MENU:
+        case LOAD_CAN_STEP_1:
             // No up/down navigation needed
             break;
-        case LOAD_CAN_INSERT_MENU:
+        case LOAD_CAN_STEP_2:
             // No up/down navigation needed
             break;
         case ADJUST_Z_MENU:
@@ -1650,10 +1647,10 @@ void buttonDownPressed() {
             menuSelection = (menuSelection < 4) ? menuSelection + 1 : 0;
             displaySettingsMenu();
             break;
-        case LOAD_CAN_MENU:
+        case LOAD_CAN_STEP_1:
             // No up/down navigation needed
             break;
-        case LOAD_CAN_INSERT_MENU:
+        case LOAD_CAN_STEP_2:
             // No up/down navigation needed
             break;
         case ADJUST_Z_MENU:
@@ -1738,15 +1735,15 @@ void buttonLeftPressed() {
             saveStateToJSON();          //If cans changed
             displayMainMenu();
             break;
-        case LOAD_CAN_MENU:
+        case LOAD_CAN_STEP_1:
             currentMenu = MAIN_MENU;
             menuSelection = 0;
             displayMainMenu();
             break;
-        case LOAD_CAN_INSERT_MENU:
-            currentMenu = LOAD_CAN_MENU;
+        case LOAD_CAN_STEP_2:
+            currentMenu = LOAD_CAN_STEP_1;
             menuSelection = 0;
-            displayLoadCanMenu();
+            displayLoadCanMenuStep1();
             break;
         case ADJUST_Z_MENU:
             currentMenu = SETTINGS_MENU;
@@ -1803,21 +1800,18 @@ void buttonOkPressed() {
                     displaySettingsMenu();
                     break;
                 case 2: // Load Can
-                    if (cansLoaded < 6) {
+                    if (cansLoaded < 6) {       //Not full?
                         canLoadSequence = true;
-                        
-                        // If no cans loaded, skip step 1 (moving cans down) and go directly to step 2
-                        if (cansLoaded == 0) {
+                        if (cansLoaded == 0) {  //0 cans, the platform is already level and ready for insert (since it just ejected)
                             machineState = canLoad_step_2;
-                            currentMenu = LOAD_CAN_INSERT_MENU;
+                            currentMenu = LOAD_CAN_STEP_2;
                             menuSelection = 0;
-                            displayLoadCanInsertMenu();
-                            std::cout << "No cans to move down - skipping to load step" << std::endl;
+                            displayLoadCanMenuStep2();
                         } else {
                             machineState = canLoad_step_1;
-                            currentMenu = LOAD_CAN_MENU;
+                            currentMenu = LOAD_CAN_STEP_1;
                             menuSelection = 0;
-                            displayLoadCanMenu();
+                            displayLoadCanMenuStep1();
                         }
                     }
 
@@ -1939,49 +1933,28 @@ void buttonOkPressed() {
             }
             break;
             
-        case LOAD_CAN_MENU:
-            if (cansLoaded < 6 && g_marlin->getCurrentState() == MarlinController::idle) {
-                std::cout << "Starting can load sequence..." << std::endl;
-                canLoadSequenceStart();  // This sets the appropriate machine state
-                
-                // If we're going to step 1 (cans > 0), stay on this menu until movement completes
-                // If we're going to step 2 (cans = 0), immediately switch to insert menu
-                if (machineState == canLoad_step_2) {
-                    currentMenu = LOAD_CAN_INSERT_MENU;
-                    displayLoadCanInsertMenu();
+        case LOAD_CAN_STEP_1:    //Vectors here when cans>0 (existing cans that must be moved down)
+            if (g_marlin->getCurrentState() == MarlinController::idle) {        //Ready?
+                if (cansLoaded < 6) {
+                    std::cout << "Starting can load PHASE 1..." << std::endl;
+                    operationRunning = true;  // For state machine
+                    canLoadStartPhase1();  // This sets the appropriate machine state
                 }
-                // If machineState == canLoad_step_1, the state machine will auto-advance the menu
+            } 
+            else {
+                std::cout << "Marlin is busy - please wait and try again" << std::endl;
             }
+
             break;
             
-        case LOAD_CAN_INSERT_MENU:
-            // User confirms they've loaded the new can
-            if (g_marlin->getCurrentState() == MarlinController::idle) {
-                std::cout << "User confirmed can loading..." << std::endl;
-                
+        case LOAD_CAN_STEP_2:   //After step 1 done (or if cans=0), user presses OK and the can stack drops 21mm to make loaded can level for next open
+            if (g_marlin->getCurrentState() == MarlinController::idle) {        //Ready?
+                std::cout << "Starting can load PHASE 2..." << std::endl;
+                operationRunning = true;  // For state machine
+                canLoadStartPhase2();
                 cansLoaded += 1;        // Increment can count
-                std::cout << "Updated cansLoaded: " << cansLoaded << std::endl;
-                
-                double targetZ = setCanOpenOffset();  // Calculate new position for the loaded can
-                std::cout << "Target Z position: " << targetZ << "mm" << std::endl;
-                
-                if (abs(targetZ - g_marlin->zPos) > 0.1) {  // Only move if significant difference
-                    std::cout << "Moving new can to correct position..." << std::endl;
-                    g_marlin->moveZTo(targetZ);  // Move new can to correct open position
-                    
-                    // Set up state to wait for movement completion
-                    machineState = canLoad_step_2;  // Stay in step 2 until movement completes
-                    operationRunning = true;  // Prevent other operations during movement
-                } else {
-                    std::cout << "No significant movement needed - completing load" << std::endl;
-                    // Complete immediately
-                    machineState = idle;
-                    saveStateToJSON();
-                    currentMenu = MAIN_MENU;
-                    menuSelection = 2;      // Position cursor on "3.Load Can"
-                    displayMainMenu();
-                }
-            } else {
+            } 
+            else {
                 std::cout << "Marlin is busy - please wait and try again" << std::endl;
             }
             break;
@@ -2191,6 +2164,7 @@ int main() {
         bool active = true;
         auto lastClockUpdate = std::chrono::steady_clock::now();
 
+        //MAIN LOOP-------------------------------------------------
         while(active && !g_shutdown_requested) {
             // Check for GPIO button presses (callbacks handle the logic)
             checkButtons();
