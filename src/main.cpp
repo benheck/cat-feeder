@@ -1122,16 +1122,18 @@ void canLoad_step_1_state(bool reset = false) {
         return;
     }
 
-    // Step 1 is just waiting for Z movement to complete
     if (g_marlin->getState() == MarlinController::idle) {
         std::cout << "Can load step 1 complete: Existing cans moved down" << std::endl;
-        machineState = canLoad_step_2;
+        
+        // ✅ STAY IN STEP 1 - don't auto-advance
+        machineState = idle;           // Return to idle, not canLoad_step_2
+        operationRunning = false;      // Clear operation flag
         started = false;
         saveStateToJSON();
         
-        // Update menu to step 2
-        currentMenu = LOAD_CAN_STEP_2;
+        // ✅ REFRESH STEP 1 MENU - user can manually advance with OK
         displayLoadCanMenuStep2();
+        std::cout << "Step 1 complete. Load new can, then press OK for step 2." << std::endl;
     }
 }
 
@@ -2093,6 +2095,7 @@ int main() {
                     char timeStr[32];
                     struct tm* feedTm = std::localtime(&feedTime);
                     std::strftime(timeStr, sizeof(timeStr), "%I:%M %p", feedTm);
+                    
                     std::cout << "Daily mode: Rescheduled to tomorrow at " << timeStr << std::endl;
                     
                 } else {
