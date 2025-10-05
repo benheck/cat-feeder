@@ -132,6 +132,13 @@ void buttonOkPressed();
 
 // Forward declarations for display functions
 std::string getFeedTimeString();
+void displayLoadCanInsertMenu();
+void displayMainMenu();
+
+// Forward declarations for can loading state functions
+void canLoad_step_1_state(bool reset);
+void canLoad_step_2_state(bool reset);
+void resetCanLoadPhases();
 
 // Define your buttons here - adjust pin numbers as needed
 std::vector<GPIOButton> buttons = {
@@ -932,6 +939,7 @@ void resetAllPhases() {
     phase7_x_eject_state(true);
     phase8_x_rehoming_final_state(true);
     phase9_z_next_can_state(true);
+    resetCanLoadPhases();
 }
 
 void dispenseStateMachine() {
@@ -970,6 +978,14 @@ void dispenseStateMachine() {
 
         case phase9_z_next_can:
             phase9_z_next_can_state();
+            break;
+
+        case canLoad_step_1:
+            canLoad_step_1_state(false);
+            break;
+
+        case canLoad_step_2:
+            canLoad_step_2_state(false);
             break;
 
         case idle:
@@ -1061,14 +1077,21 @@ void ejectOnlyStart() {
 
 void canLoadSequenceStart() {
     std::cout << "Starting can load sequence..." << std::endl;
-
-    //machineState = canLoad_step_1;
-    //canLoadSequence = true;
-
-    double currentZ = g_marlin->zPos;       //Get current
-    currentZ -= nextCan;
-    g_marlin->moveZTo(currentZ);            // Move to new Z position
-
+    
+    // Step 1: Move existing cans down (if any exist)
+    if (cansLoaded > 0) {
+        std::cout << "Moving existing cans down by " << nextCan << "mm..." << std::endl;
+        machineState = canLoad_step_1;
+        double currentZ = g_marlin->zPos;
+        currentZ -= nextCan;  // Move down to make room for new can
+        g_marlin->moveZTo(currentZ);
+        saveStateToJSON();
+    } else {
+        std::cout << "No existing cans - Z tray already in correct position" << std::endl;
+        // Skip step 1, go directly to step 2
+        machineState = canLoad_step_2;
+        saveStateToJSON();
+    }
 }
 
 
@@ -1092,6 +1115,69 @@ enum MenuState {
 
 MenuState currentMenu = CLOCK_SCREEN;
 int menuSelection = 0;
+
+// Can loading state functions (placed here after menu variables are declared)
+void canLoad_step_1_state(bool reset = false) {
+    static bool started = false;
+    
+    if (reset) {
+        started = false;
+        return;
+    }
+
+    // Step 1 is just waiting for Z movement to complete
+    if (g_marlin->getState() == MarlinController::idle) {
+        std::cout << "Can load step 1 complete: Existing cans moved down" << std::endl;
+        machineState = canLoad_step_2;
+        started = false;
+        saveStateToJSON();
+        
+        // Update menu to step 2
+        currentMenu = LOAD_CAN_INSERT_MENU;
+        displayLoadCanInsertMenu();
+    }
+}
+
+void canLoad_step_2_state(bool reset = false) {
+    static bool started = false;
+    static bool waitingForMovement = false;
+    
+    if (reset) {
+        started = false;
+        waitingForMovement = false;
+        return;
+    }
+
+    // If we're waiting for movement to complete
+    if (waitingForMovement && g_marlin->getState() == MarlinController::idle) {
+        std::cout << "Can load step 2 complete: New can positioned correctly" << std::endl;
+        
+        // Complete the loading process
+        machineState = idle;
+        operationRunning = false;
+        waitingForMovement = false;
+        started = false;
+        saveStateToJSON();
+        
+        // Return to main menu
+        currentMenu = MAIN_MENU;
+        menuSelection = 2;      // Position cursor on "3.Load Can"
+        displayMainMenu();
+        
+        std::cout << "Can loading sequence complete!" << std::endl;
+    }
+    
+    // Check if we just started a movement (set by button handler)
+    if (operationRunning && !waitingForMovement) {
+        waitingForMovement = true;
+        std::cout << "Waiting for can positioning movement to complete..." << std::endl;
+    }
+}
+
+void resetCanLoadPhases() {
+    canLoad_step_1_state(true);
+    canLoad_step_2_state(true);
+}
 
 // Function to get current time in 12-hour format with seconds
 std::string getCurrentTimeString() {
@@ -1855,59 +1941,48 @@ void buttonOkPressed() {
             
         case LOAD_CAN_MENU:
             if (cansLoaded < 6 && g_marlin->getCurrentState() == MarlinController::idle) {
-                canLoadSequenceStart();
-                // Automatically proceed to next menu after completion
-                currentMenu = LOAD_CAN_INSERT_MENU;
-                menuSelection = 0;
-                displayLoadCanInsertMenu();     //Next menu
+                std::cout << "Starting can load sequence..." << std::endl;
+                canLoadSequenceStart();  // This sets the appropriate machine state
+                
+                // If we're going to step 1 (cans > 0), stay on this menu until movement completes
+                // If we're going to step 2 (cans = 0), immediately switch to insert menu
+                if (machineState == canLoad_step_2) {
+                    currentMenu = LOAD_CAN_INSERT_MENU;
+                    displayLoadCanInsertMenu();
+                }
+                // If machineState == canLoad_step_1, the state machine will auto-advance the menu
             }
             break;
             
         case LOAD_CAN_INSERT_MENU:
-            // Check Marlin state and debug
-            std::cout << "=== LOAD CAN DEBUG ===" << std::endl;
-            std::cout << "Marlin current state: " << marlinStateToString(g_marlin->getCurrentState()) << std::endl;
-            std::cout << "Marlin internal state: " << marlinStateToString(g_marlin->getState()) << std::endl;
-            std::cout << "Current Z position: " << g_marlin->zPos << "mm" << std::endl;
-            std::cout << "Current cansLoaded: " << cansLoaded << std::endl;
-            
-            // Only process if Marlin is idle (not currently moving)
+            // User confirms they've loaded the new can
             if (g_marlin->getCurrentState() == MarlinController::idle) {
-                std::cout << "Marlin is IDLE - proceeding with load..." << std::endl;
-                std::cout << "Loading can into feeder..." << std::endl;
+                std::cout << "User confirmed can loading..." << std::endl;
                 
                 cansLoaded += 1;        // Increment can count
                 std::cout << "Updated cansLoaded: " << cansLoaded << std::endl;
                 
                 double targetZ = setCanOpenOffset();  // Calculate new position for the loaded can
-                
                 std::cout << "Target Z position: " << targetZ << "mm" << std::endl;
-                std::cout << "Z movement needed: " << (targetZ - g_marlin->zPos) << "mm" << std::endl;
                 
-                if (abs(targetZ - g_marlin->zPos) > 0.1) {  // Only move if difference > 0.1mm
-                    std::cout << "Significant movement required - calling moveZTo(" << targetZ << ")" << std::endl;
+                if (abs(targetZ - g_marlin->zPos) > 0.1) {  // Only move if significant difference
+                    std::cout << "Moving new can to correct position..." << std::endl;
                     g_marlin->moveZTo(targetZ);  // Move new can to correct open position
                     
-                    // Wait a brief moment for the move to start
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                    
-                    std::cout << "Movement command sent. New Marlin state: " << marlinStateToString(g_marlin->getCurrentState()) << std::endl;
+                    // Set up state to wait for movement completion
+                    machineState = canLoad_step_2;  // Stay in step 2 until movement completes
+                    operationRunning = true;  // Prevent other operations during movement
                 } else {
-                    std::cout << "Movement too small (" << abs(targetZ - g_marlin->zPos) << "mm) - skipping" << std::endl;
+                    std::cout << "No significant movement needed - completing load" << std::endl;
+                    // Complete immediately
+                    machineState = idle;
+                    saveStateToJSON();
+                    currentMenu = MAIN_MENU;
+                    menuSelection = 2;      // Position cursor on "3.Load Can"
+                    displayMainMenu();
                 }
-                
-                std::cout << "Can loading complete!" << std::endl;
-                
-                // Reset machine state to idle after successful can loading
-                machineState = idle;
-                saveStateToJSON();  // Save the updated state
-                
-                currentMenu = MAIN_MENU;
-                menuSelection = 2;      // Position cursor on "3.Load Can" for easy repeated loading
-                displayMainMenu();
             } else {
-                std::cout << "Marlin is NOT IDLE - cannot proceed with load" << std::endl;
-                std::cout << "Press OK again when Marlin is ready" << std::endl;
+                std::cout << "Marlin is busy - please wait and try again" << std::endl;
             }
             break;
             
