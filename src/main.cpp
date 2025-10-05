@@ -43,6 +43,8 @@ bool canLoadSequence = false;
 double feedGap = 8.0;                  // Feed gap in hours - can be adjusted in menu
 std::time_t feedTime = 0;              // Next feeding time (Unix timestamp)
 
+bool disableSteppersAfterActions = true; // Disable stepper motors after actions complete
+
 // Fan control for dispense sequence
 std::time_t fanStopTime = 0;           // Time when fan should be turned off (0 = fan off)
 
@@ -913,6 +915,12 @@ void phase9_z_next_can_state(bool reset = false) {
         std::cout << "Phase 9 complete: Z Next Can" << std::endl;
         std::cout << "---FEED SEQUENCE COMPLETE---" << std::endl;
         
+        // Disable stepper motors after sequence completion
+        if (disableSteppersAfterActions) {
+            std::cout << "Disabling stepper motors..." << std::endl;
+            g_marlin->sendGCode("M84");  // Disable all stepper motors
+        }
+        
         // Decrement can count and ensure proper final state
         cansLoaded--;
         std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
@@ -1165,6 +1173,12 @@ void canLoad_step_2_state(bool reset = false) {
         displayMainMenu();
         
         std::cout << "Can loading sequence complete!" << std::endl;
+        
+        // Disable stepper motors after can loading completion
+        if (disableSteppersAfterActions) {
+            std::cout << "Disabling stepper motors..." << std::endl;
+            g_marlin->sendGCode("M84");  // Disable all stepper motors
+        }
     }
     
     // Check if we just started a movement (set by button handler)
@@ -2229,6 +2243,12 @@ int main() {
                 if (g_marlin->getCurrentState() == MarlinController::idle && machineState == idle) {
                     operationRunning = false;
                     std::cout << "Food dispense operation complete!" << std::endl;
+                    
+                    // Disable stepper motors after operation completion
+                    if (disableSteppersAfterActions) {
+                        std::cout << "Disabling stepper motors..." << std::endl;
+                        g_marlin->sendGCode("M84");  // Disable all stepper motors
+                    }
                     
                     // Set fan to continue running for 5 more minutes
                     auto now = std::chrono::system_clock::now();
