@@ -964,21 +964,26 @@ void phase9_z_next_can_state(bool reset = false) {
         std::cout << "Entering phase 9: Z Next Can..." << std::endl;
         started = true;
         
-        // Check if this is the last can - if so, skip Z movement as there's no next can to position
-        if (cansLoaded <= 1) {
-            std::cout << "Last can ejected - skipping Z positioning" << std::endl;
-            // Go directly to completion without moving Z
-        } else {
+        // Decrement can count first to see how many will remain
+        cansLoaded--;
+        std::cout << "Can dispensed. Remaining cans: " << cansLoaded << std::endl;
+        
+        // Check if there are remaining cans to position
+        if (cansLoaded > 0) {
+            std::cout << "Positioning next can flush..." << std::endl;
             double currentZ = g_marlin->zPos;
             currentZ += nextCan;
             g_marlin->moveZTo(currentZ);
+        } else {
+            std::cout << "Last can dispensed - skipping Z positioning" << std::endl;
+            // Go directly to completion without moving Z
         }
         saveStateToJSON();
         return;
     }
 
     // If we skipped the Z movement (last can), or if Z movement is complete
-    if (cansLoaded <= 1 || g_marlin->getState() == MarlinController::idle) {
+    if (cansLoaded == 0 || g_marlin->getState() == MarlinController::idle) {
         std::cout << "Phase 9 complete: Z Next Can" << std::endl;
         std::cout << "---FEED SEQUENCE COMPLETE---" << std::endl;
         
@@ -988,8 +993,7 @@ void phase9_z_next_can_state(bool reset = false) {
             g_marlin->sendGCode("M84");  // Disable all stepper motors
         }
         
-        // Decrement can count and ensure proper final state
-        cansLoaded--;
+        // Display final state
         std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
         std::cout << "Final Z position: " << g_marlin->zPos << "mm" << std::endl;
         
@@ -1030,9 +1034,11 @@ void eject_only_x_eject_state(bool reset = false) {
 
 void eject_only_rehome_state(bool reset = false) {
     static bool started = false;
+    static bool zPositioning = false;
 
     if (reset) {
         started = false;
+        zPositioning = false;
         return;
     }
 
@@ -1044,18 +1050,36 @@ void eject_only_rehome_state(bool reset = false) {
         return;
     }
 
-    if (g_marlin->getState() == MarlinController::xHomed) {
-        std::cout << "Eject-only sequence complete!" << std::endl;
+    // X homing complete, now handle Z positioning
+    if (!zPositioning && g_marlin->getState() == MarlinController::xHomed) {
+        std::cout << "Eject-only X rehoming complete!" << std::endl;
         
+        // Decrement can count for eject-only operation
+        cansLoaded--;
+        std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
+        
+        // Position next can flush if there are more cans
+        if (cansLoaded > 0) {
+            std::cout << "Positioning next can flush..." << std::endl;
+            zPositioning = true;
+            double currentZ = g_marlin->zPos;
+            currentZ += nextCan;
+            g_marlin->moveZTo(currentZ);
+            std::cout << "Moving Z to position next can at flush level" << std::endl;
+            return;
+        } else {
+            std::cout << "No more cans - skipping Z positioning" << std::endl;
+            zPositioning = false; // Skip Z positioning
+        }
+    }
+
+    // Z positioning complete (or skipped), finish the sequence
+    if (!zPositioning || (zPositioning && g_marlin->getState() == MarlinController::idle)) {
         // Disable stepper motors after eject-only completion
         if (disableSteppersAfterActions) {
             std::cout << "Disabling stepper motors..." << std::endl;
             g_marlin->sendGCode("M84");  // Disable all stepper motors
         }
-        
-        // Decrement can count for eject-only operation
-        cansLoaded--;
-        std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
         
         // Turn off fans
         if (g_marlin) {
@@ -1063,9 +1087,11 @@ void eject_only_rehome_state(bool reset = false) {
             g_marlin->setFanSpeed(1, 0);
         }
         
+        std::cout << "Eject-only sequence complete!" << std::endl;
         machineState = idle;
         operationRunning = false;  // Clear operation flag
         started = false;  // Reset for next time
+        zPositioning = false;
         saveStateToJSON();
     }
 }
