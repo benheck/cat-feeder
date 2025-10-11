@@ -1056,7 +1056,7 @@ void eject_only_rehome_state(bool reset = false) {
         
         // Decrement can count for eject-only operation
         cansLoaded--;
-        std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
+        std::cout << "DEBUG: Can count decremented. New cansLoaded: " << cansLoaded << std::endl;
         
         // Position next can flush if there are more cans
         if (cansLoaded > 0) {
@@ -1075,6 +1075,8 @@ void eject_only_rehome_state(bool reset = false) {
 
     // Z positioning complete (or skipped), finish the sequence
     if (!zPositioning || (zPositioning && g_marlin->getState() == MarlinController::idle)) {
+        std::cout << "DEBUG: Finishing eject-only sequence. Final cansLoaded: " << cansLoaded << std::endl;
+        
         // Disable stepper motors after eject-only completion
         if (disableSteppersAfterActions) {
             std::cout << "Disabling stepper motors..." << std::endl;
@@ -1092,7 +1094,9 @@ void eject_only_rehome_state(bool reset = false) {
         operationRunning = false;  // Clear operation flag
         started = false;  // Reset for next time
         zPositioning = false;
+        std::cout << "DEBUG: About to save state with cansLoaded = " << cansLoaded << std::endl;
         saveStateToJSON();
+        std::cout << "DEBUG: State saved." << std::endl;
     }
 }
 
