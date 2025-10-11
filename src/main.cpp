@@ -103,6 +103,7 @@ double ejectLast = 318.00;          //Z's max height. If zero cans, this is the 
 const double openToEjectOffset = 21.00;            //Move just-opened can ZUP this much so it can be ejected
 const double nextCan = 37.00;               //After eject, move nextCan ZUP to bring next can level for opening
 const double cartridgeHeight = 58.00;       //Z start offset = openLast - (cansLoaded * cartridgeHeight)
+double loadStepZ = 0;           //Z position during can loading steps (loaded can open position)   
 
 // GPIO Button Configuration using libgpiod with callback support
 // Supports both v1.x (Pi 4) and v2.x (Pi 5) APIs
@@ -141,7 +142,6 @@ void displayLoadCanMenuStep2();
 void displayMainMenu();
 
 // Forward declarations for can loading state functions
-double canLoad_step_2_offset;
 void canLoad_step_1_state(bool reset);
 void canLoad_step_2_state(bool reset);
 void resetCanLoadPhases();
@@ -1234,19 +1234,17 @@ void ejectOnlyStart() {
 
 void canLoadStartPhase1() {         //If more than 0 cans already loaded, move cans down to slide new one in
     machineState = canLoad_step_1;            //Set state
-    double loadStep1Z = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
-    loadStep1Z -= nextCan;                    //Move down 37mm to slide in next can. Next can will be 21mm over the flush edge
-    g_marlin->moveZTo(loadStep1Z);            //Send that command
-    canLoad_step_2_offset = openToEjectOffset; //Store offset for step 2 (either 21 or 37)
+    //loadStepZ comes from the Z flush height, is set on BUTTON OK push
+    loadStepZ -= nextCan;                    //Move down 37mm to slide in next can. Next can will be 21mm over the flush edge
+    g_marlin->moveZTo(loadStepZ);            //Send that command
     saveStateToJSON();                        //Save state
 }
 
 void canLoadStartPhase2() {
-    machineState = canLoad_step_2;            //Set state
-    double loadStep2Z = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
+    machineState = canLoad_step_2;            //Set state  
     //If zero cans were loaded, canLoad_step_2_offset is 21, else it's 37. Both will make the next can (new can) flush with the platform
-    loadStep2Z -= canLoad_step_2_offset;            //Move down another can height to position new can correctly. New can will then be flush and ready to open
-    g_marlin->moveZTo(loadStep2Z);            //Send movement command
+    loadStepZ -= openToEjectOffset;            //Move down another can height to position new can correctly. New can will then be flush and ready to open
+    g_marlin->moveZTo(loadStepZ);            //Send movement command
     saveStateToJSON();                        //Save state
 }
 
@@ -1977,12 +1975,14 @@ void buttonOkPressed() {
                         if (cansLoaded == 0) {  //0 cans, the platform is already level and ready for insert (since it just ejected)
                             machineState = canLoad_step_2;
                             currentMenu = LOAD_CAN_STEP_2;
-                            canLoad_step_2_offset = openToEjectOffset; //Default to 21mm offset for zero cans loaded
+                            loadStepZ = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
+                            canLoad_step_2_offset = openToEjectOffset; //After load, can is lowered by this much
                             menuSelection = 0;
                             displayLoadCanMenuStep2();
                         } else {
                             machineState = canLoad_step_1;
                             currentMenu = LOAD_CAN_STEP_1;
+                            loadStepZ = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
                             menuSelection = 0;
                             displayLoadCanMenuStep1();
                         }
