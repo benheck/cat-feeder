@@ -1242,8 +1242,10 @@ void canLoadStartPhase1() {         //If more than 0 cans already loaded, move c
 
 void canLoadStartPhase2() {
     machineState = canLoad_step_2;            //Set state  
+    std::cout << "DEBUG: canLoadStartPhase2() - loadStepZ before: " << loadStepZ << "mm" << std::endl;
     //If zero cans were loaded, canLoad_step_2_offset is 21, else it's 37. Both will make the next can (new can) flush with the platform
     loadStepZ -= openToEjectOffset;            //Move down another can height to position new can correctly. New can will then be flush and ready to open
+    std::cout << "DEBUG: canLoadStartPhase2() - loadStepZ after subtracting " << openToEjectOffset << "mm: " << loadStepZ << "mm" << std::endl;
     g_marlin->moveZTo(loadStepZ);            //Send movement command
     saveStateToJSON();                        //Save state
 }
@@ -1970,37 +1972,22 @@ void buttonOkPressed() {
                     displaySettingsMenu();
                     break;
                 case 2: // Load Can
-                    if (cansLoaded < 6) {       //Not full?
-                        canLoadSequence = true;
-                        loadStepZ = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
-                        
-                        if (cansLoaded == 0) {  //0 cans, the platform is already level and ready for insert (since it just ejected)
-                            if (g_marlin->getCurrentState() == MarlinController::idle) {
-                                std::cout << "Starting can load PHASE 2..." << std::endl;
-                                operationRunning = true;  // For state machine
-                                canLoadStartPhase2();  // This sets the appropriate machine state and starts movement
-                                currentMenu = LOAD_CAN_STEP_2;
-                                menuSelection = 0;
-                                displayLoadCanMenuStep2();
-                            } else {
-                                std::cout << "Marlin is busy - please wait and try again" << std::endl;
-                            }
-
+                    if (cansLoaded < 6) {       // Not full?
+                        // Just navigate to the appropriate loading menu based on can count
+                        if (cansLoaded == 0) {  
+                            // 0 cans - go directly to step 2 menu (no existing cans to move)
+                            currentMenu = LOAD_CAN_STEP_2;
+                            menuSelection = 0;
+                            displayLoadCanMenuStep2();
                         } else {
-                            // Immediately start phase 1 movement instead of just setting up menu
-                            if (g_marlin->getCurrentState() == MarlinController::idle) {
-                                std::cout << "Starting can load PHASE 1..." << std::endl;
-                                operationRunning = true;  // For state machine
-                                canLoadStartPhase1();  // This sets the appropriate machine state and starts movement
-                                currentMenu = LOAD_CAN_STEP_1;
-                                menuSelection = 0;
-                                displayLoadCanMenuStep1();
-                            } else {
-                                std::cout << "Marlin is busy - please wait and try again" << std::endl;
-                            }
+                            // Has cans - go to step 1 menu (need to move existing cans first)
+                            currentMenu = LOAD_CAN_STEP_1;
+                            menuSelection = 0;
+                            displayLoadCanMenuStep1();
                         }
+                    } else {
+                        std::cout << "Cannot load can - feeder is full (6 cans)" << std::endl;
                     }
-
                     break;
             }
             break;
@@ -2119,23 +2106,30 @@ void buttonOkPressed() {
             }
             break;
             
-        case LOAD_CAN_STEP_1:    //Vectors here when cans>0 (existing cans that must be moved down)
-            if (g_marlin->getCurrentState() == MarlinController::idle) {        //Ready?
+        case LOAD_CAN_STEP_1:    // Vectors here when cans>0 (existing cans that must be moved down)
+            if (g_marlin->getCurrentState() == MarlinController::idle) {        // Ready?
                 if (cansLoaded < 6) {
                     std::cout << "Starting can load PHASE 1..." << std::endl;
+                    // Initialize the loading sequence variables
+                    canLoadSequence = true;
+                    loadStepZ = getCanOpenOffset();   // Get current Z position based on can count
                     operationRunning = true;  // For state machine
-                    canLoadStartPhase1();  // This sets the appropriate machine state
+                    canLoadStartPhase1();  // This sets the appropriate machine state and starts movement
                 }
             } 
             else {
                 std::cout << "Marlin is busy - please wait and try again" << std::endl;
             }
-
             break;
             
-        case LOAD_CAN_STEP_2:   //After step 1 done (or if cans=0), user presses OK and the can stack drops 21mm to make loaded can level for next open
-            if (g_marlin->getCurrentState() == MarlinController::idle) {        //Ready?
+        case LOAD_CAN_STEP_2:   // After step 1 done (or if cans=0), user presses OK and the can stack drops 21mm to make loaded can level for next open
+            if (g_marlin->getCurrentState() == MarlinController::idle) {        // Ready?
                 std::cout << "Starting can load PHASE 2..." << std::endl;
+                // Initialize the loading sequence variables if not already set
+                if (!canLoadSequence) {
+                    canLoadSequence = true;
+                    loadStepZ = getCanOpenOffset();   // Get current Z position based on can count
+                }
                 operationRunning = true;  // For state machine
                 canLoadStartPhase2();
                 cansLoaded += 1;        // Increment can count
