@@ -18,6 +18,7 @@
 
 enum state {
     idle,                       //Must have 1 or more cans loaded for this state
+    pre_operation_z_homing,     //Z home before each dispense/eject operation
     phase1_x_homing,
     phase2_x_to_start,
     phase3_tab_lifting,
@@ -40,6 +41,7 @@ SSD1306* g_display = nullptr;          // Global pointer to display
 int cansLoaded = 0;
 bool operationRunning = false;         // Flag to track if operation is running
 bool canLoadSequence = false;
+bool isEjectOnlyOperation = false;     // Track if current operation is eject-only
 double feedGap = 8.0;                  // Feed gap in hours - can be adjusted in menu
 std::time_t feedTime = 0;              // Next feeding time (Unix timestamp)
 
@@ -354,6 +356,7 @@ void clearButtonCallback(const std::string& name) {
 std::string machineStateToString(state s) {
     switch(s) {
         case idle: return "idle";
+        case pre_operation_z_homing: return "pre_operation_z_homing";
         case phase1_x_homing: return "phase1_x_homing";
         case phase2_x_to_start: return "phase2_x_to_start";
         case phase3_tab_lifting: return "phase3_tab_lifting";
@@ -375,6 +378,7 @@ std::string machineStateToString(state s) {
 // Helper function to convert string to machine state enum
 state stringToMachineState(const std::string& s) {
     if (s == "idle") return idle;
+    if (s == "pre_operation_z_homing") return pre_operation_z_homing;
     if (s == "phase1_x_homing") return phase1_x_homing;
     if (s == "phase2_x_to_start") return phase2_x_to_start;
     if (s == "phase3_tab_lifting") return phase3_tab_lifting;
@@ -685,6 +689,55 @@ double setCanOpenOffset(bool sendToMarlin = false) {  //Calcs Z for opening the 
 
 }
 
+void pre_operation_z_homing_state(bool reset = false) {
+    static bool started = false;
+    
+    if (reset) {
+        started = false;
+        return;
+    }
+
+    if (!started) {
+        std::cout << "Pre-operation Z homing..." << std::endl;
+        started = true;
+        
+        // IMPORTANT: Set the Z offset BEFORE homing, so MarlinController 
+        // knows where to move after homing completes
+        setCanOpenOffset(true);
+        
+        g_marlin->homeZ();  // This will automatically move to zPosOffsetStart after homing
+        machineState = pre_operation_z_homing;
+        saveStateToJSON();
+        return;
+    }
+
+    if (g_marlin->getState() == MarlinController::idle) {
+        std::cout << "Pre-operation Z homing complete (including offset positioning)" << std::endl;
+        
+        if (isEjectOnlyOperation) {
+            // For eject-only: calculate eject position and go directly to X eject
+            // The Z is already at the correct can open position, just add eject offset
+            double ejectZ = g_marlin->zPos + canToEject;
+            std::cout << "Moving Z to eject position: " << ejectZ << "mm" << std::endl;
+            g_marlin->moveZTo(ejectZ);
+            machineState = phase7_x_eject;
+        } else {
+            // For full dispense: proceed to normal X homing
+            // Z is already positioned at the correct can open position
+            machineState = phase1_x_homing;
+        }
+        
+        started = false;
+        saveStateToJSON();
+    }
+}
+
+// Helper function to set operation type for pre-Z homing
+void setEjectOnlyOperation(bool isEjectOnly) {
+    // This will be called from the start functions to tell the Z homing what to do next
+    // We'll use a static variable in the function above
+}
+
 void phase1_x_homing_state(bool reset = false) {
     static bool started = false;
     
@@ -938,6 +991,7 @@ void phase9_z_next_can_state(bool reset = false) {
 }
 
 void resetAllPhases() {
+    pre_operation_z_homing_state(true);
     phase1_x_homing_state(true);
     phase2_x_to_start_state(true);
     phase3_tab_lifting_state(true);
@@ -952,6 +1006,10 @@ void resetAllPhases() {
 
 void dispenseStateMachine() {
     switch(machineState) {
+        case pre_operation_z_homing:
+            pre_operation_z_homing_state();
+            break;
+
         case phase1_x_homing:
             phase1_x_homing_state();
             break;
@@ -1029,14 +1087,17 @@ void dispenseFoodStart() {
     // Reset all phase static variables
     resetAllPhases();
     
+    // Set operation type for dispense (not eject-only)
+    isEjectOnlyOperation = false;
+    
     // Reset machine state to idle
     machineState = idle;
     
     // Save initial state
     saveStateToJSON();
     
-    // Start the sequence
-    phase1_x_homing_state();
+    // Start the sequence with Z homing
+    pre_operation_z_homing_state();
 
     //machineState = phase5_x_rehoming;  //jump test
     //phase5_x_rehoming_state();          //jump test
@@ -1070,16 +1131,14 @@ void ejectOnlyStart() {
     // Reset all phase static variables
     resetAllPhases();
     
-    // Calculate the eject position: current can open position + lift amount
-    double currentCanOpenZ = setCanOpenOffset();  // Get current can's open position
-    double ejectZ = currentCanOpenZ + canToEject;  // Add 21mm for eject height
+    // Set operation type for eject-only
+    isEjectOnlyOperation = true;
     
-    std::cout << "Moving Z to eject position: " << ejectZ << "mm" << std::endl;
-    g_marlin->moveZTo(ejectZ);  // Move directly to eject position
-    
-    std::cout << "Jumping to phase 7..." << std::endl;
-    machineState = phase7_x_eject;  // Skip phase 6, go directly to X eject
+    // Save initial state
     saveStateToJSON();
+    
+    // Start the sequence with Z homing (will handle eject positioning after homing)
+    pre_operation_z_homing_state();
 
 }
 
@@ -1274,6 +1333,7 @@ void displayClockScreen() {
         std::string stateStr;
         switch (machineState) {
             case idle: stateStr = "IDLE"; break;
+            case pre_operation_z_homing: stateStr = "Z HOME"; break;
             case phase1_x_homing: stateStr = "HOMING"; break;
             case phase2_x_to_start: stateStr = "MOVING"; break;
             case phase3_tab_lifting: stateStr = "LIFTING"; break;
@@ -1441,6 +1501,7 @@ void displayStatus() {
         std::string stateStr;
         switch (machineState) {
             case idle: stateStr = "Idle"; break;
+            case pre_operation_z_homing: stateStr = "Pre-Op Z Home"; break;
             case phase1_x_homing: stateStr = "Homing X"; break;
             case phase2_x_to_start: stateStr = "Move Start"; break;
             case phase3_tab_lifting: stateStr = "Tab Lifting"; break;
@@ -1511,8 +1572,7 @@ void abortOperation() {
     }
 }
 
-// Check for web commands (non-destructive addition)
-void checkWebCommands() {
+void checkWebCommands() {               // Check for web commands (non-destructive addition)
     static std::time_t lastCommandCheck = 0;
     
     // Only check every 2 seconds to avoid excessive file I/O
@@ -1586,8 +1646,8 @@ void checkWebCommands() {
     }
 }
 
-// Default button callback functions
-void buttonUpPressed() {
+
+void buttonUpPressed() {            // Default button callback functions
     switch(currentMenu) {
         case CLOCK_SCREEN:
             // No navigation on clock screen
