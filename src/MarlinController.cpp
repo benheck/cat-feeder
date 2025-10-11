@@ -178,10 +178,6 @@ void MarlinController::extractPosition(std::string response) {
 
 }
 
-void MarlinController::setZPosOffsetStart(double offset) {  //Based on # of loaded cans, where Z should go after homing
-    zPosOffsetStart = offset;
-}
-
 void MarlinController::readerThreadFunction() {
     char buffer[1024];
     std::string lineBuffer;
@@ -242,10 +238,10 @@ void MarlinController::handleResponse(std::string response) {
         case homingZ:
             //Already got position above thanks!
             if (response == "ok") {
-                std::cout << "---------> Z Homing complete moving to can offset..." << std::endl;
-                moveZTo(zPosOffsetStart);
-                burnExtraOK = true;         //Hacky fix
+                std::cout << "---------> Z Homing complete" << std::endl;
+                marlinState = idle;
             }
+            break;
 
         case zMoveStarted:    
             if (response == "ok") {

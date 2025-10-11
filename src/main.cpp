@@ -28,6 +28,8 @@ enum state {
     phase7_x_eject,
     phase8_x_rehoming_final,
     phase9_z_next_can,
+    eject_only_x_eject,         //Standalone eject operation
+    eject_only_rehome,          //Rehome after eject-only
     initial_z_homing,
     initial_z_offsetting,
     loading_first,              //User forced to load at least 1 can
@@ -97,9 +99,8 @@ bool isWeekend() {
     return (dayOfWeek == 0 || dayOfWeek == 6); // Sunday or Saturday
 }
 
-double ejectLast = 318.00;             //CAN be adjusted in the menu
-double openLast = ejectLast - 21.00;
-const double canToEject = 21.00;            //Move just-opened can ZUP this much so it can be ejected
+double ejectLast = 318.00;          //Z's max height. If zero cans, this is the platform fully up so a new can can be loaded
+const double openToEjectOffset = 21.00;            //Move just-opened can ZUP this much so it can be ejected
 const double nextCan = 37.00;               //After eject, move nextCan ZUP to bring next can level for opening
 const double cartridgeHeight = 58.00;       //Z start offset = openLast - (cansLoaded * cartridgeHeight)
 
@@ -366,6 +367,8 @@ std::string machineStateToString(state s) {
         case phase7_x_eject: return "phase7_x_eject";
         case phase8_x_rehoming_final: return "phase8_x_rehoming_final";
         case phase9_z_next_can: return "phase9_z_next_can";
+        case eject_only_x_eject: return "eject_only_x_eject";
+        case eject_only_rehome: return "eject_only_rehome";
         case initial_z_homing: return "initial_z_homing";
         case initial_z_offsetting: return "initial_z_offsetting";
         case loading_first: return "loading_first";
@@ -388,6 +391,8 @@ state stringToMachineState(const std::string& s) {
     if (s == "phase7_x_eject") return phase7_x_eject;
     if (s == "phase8_x_rehoming_final") return phase8_x_rehoming_final;
     if (s == "phase9_z_next_can") return phase9_z_next_can;
+    if (s == "eject_only_x_eject") return eject_only_x_eject;
+    if (s == "eject_only_rehome") return eject_only_rehome;
     if (s == "initial_z_homing") return initial_z_homing;
     if (s == "initial_z_offsetting") return initial_z_offsetting;
     if (s == "loading_first") return loading_first;
@@ -645,7 +650,6 @@ void loadStateFromJSON(const std::string& filename = "machine_state.json") {
         dailyFeedHour = daily_feed_hour_value;
         dailyFeedMinute = daily_feed_minute_value;
         dailyWeekendOnly = daily_weekend_only_value;
-        openLast = ejectLast - 21;       // Recalculate openLast based on loaded ejectLast
         
         std::cout << "State loaded from " << fullPath << std::endl;
         std::cout << "  Machine State: " << machine_state_str << std::endl;
@@ -662,38 +666,38 @@ void loadStateFromJSON(const std::string& filename = "machine_state.json") {
     }
 }
 
-double setCanOpenOffset(bool sendToMarlin = false) {  //Calcs Z for opening the next can in magazine
+double setCanOpenOffset() { //Calcs z for the next can to be opened to be flush with the platform
 
-    openLast = ejectLast - 21;      //Update this
-    double offset = (openLast + cartridgeHeight) - (cansLoaded * cartridgeHeight);
+    //Default formula for 2+ cans (and fallback for any unhandled cases)
+    double offsetFromZ = (ejectLast - openToEjectOffset) - ((cansLoaded - 1) * cartridgeHeight);
 
-    // Safety check: If no cans loaded or offset would exceed ejectLast (318mm), 
-    // limit Z to ejectLast position to prevent mechanical damage
-    if (cansLoaded == 0 || offset > ejectLast) {
-        offset = ejectLast;
-        std::cout << "WARNING: Z offset limited to ejectLast (" << ejectLast << "mm) - ";
-        if (cansLoaded == 0) {
-            std::cout << "no cans loaded" << std::endl;
-        } else {
-            std::cout << "calculated offset (" << ((openLast + cartridgeHeight) - (cansLoaded * cartridgeHeight)) << "mm) exceeds limit" << std::endl;
-        }
+    //Then handle variance:
+    switch(cansLoaded) {
+        case 0:
+            offsetFromZ = ejectLast;        // No cans, so go to top position for loading since we need a can
+            std::cout << "Z OFFSET: No cans loaded, moving to load first can position (" << ejectLast << "mm) - ";
+            break;
+
+        case 1:
+            offsetFromZ = (ejectLast - openToEjectOffset);
+            std::cout << "Z OFFSET: 1 can loaded, moving to first can open position (" << offsetFromZ << "mm) - ";
+            break;
+
     }
 
-    if (sendToMarlin && g_marlin) {
-        g_marlin->setZPosOffsetStart(offset);
-    }
+    std::cout << "............Can Z Offset set to: " << offsetFromZ << " mm" << std::endl;
 
-    std::cout << "Can Z Offset set to: " << offset << " mm" << std::endl;
-
-    return offset;
+    return offsetFromZ;
 
 }
 
 void pre_operation_z_homing_state(bool reset = false) {
     static bool started = false;
+    static bool homed = false;
     
     if (reset) {
         started = false;
+        homed = false;
         return;
     }
 
@@ -701,26 +705,34 @@ void pre_operation_z_homing_state(bool reset = false) {
         std::cout << "Pre-operation Z homing..." << std::endl;
         started = true;
         
-        // IMPORTANT: Set the Z offset BEFORE homing, so MarlinController 
-        // knows where to move after homing completes
-        setCanOpenOffset(true);
-        
-        g_marlin->homeZ();  // This will automatically move to zPosOffsetStart after homing
+        g_marlin->homeZ();  // Just home Z, don't move to offset yet
         machineState = pre_operation_z_homing;
         saveStateToJSON();
         return;
     }
 
-    if (g_marlin->getState() == MarlinController::idle) {
+    // Check if Z homing is complete
+    if (!homed && g_marlin->getState() == MarlinController::idle) {
+        std::cout << "Z homing complete, now moving to can offset..." << std::endl;
+        homed = true;
+        
+        // Now calculate and move to the offset position
+        double offset = setCanOpenOffset();  // Calculate but don't send to Marlin yet
+        g_marlin->moveZTo(offset);  // Move to the calculated position
+        return;
+    }
+
+    // Check if offset move is complete
+    if (homed && g_marlin->getState() == MarlinController::idle) {
         std::cout << "Pre-operation Z homing complete (including offset positioning)" << std::endl;
         
         if (isEjectOnlyOperation) {
-            // For eject-only: calculate eject position and go directly to X eject
+            // For eject-only: calculate eject position and go directly to eject-only sequence
             // The Z is already at the correct can open position, just add eject offset
-            double ejectZ = g_marlin->zPos + canToEject;
+            double ejectZ = g_marlin->zPos + openToEjectOffset;
             std::cout << "Moving Z to eject position: " << ejectZ << "mm" << std::endl;
             g_marlin->moveZTo(ejectZ);
-            machineState = phase7_x_eject;
+            machineState = eject_only_x_eject;  // Use dedicated eject-only state
         } else {
             // For full dispense: proceed to normal X homing
             // Z is already positioned at the correct can open position
@@ -728,6 +740,7 @@ void pre_operation_z_homing_state(bool reset = false) {
         }
         
         started = false;
+        homed = false;
         saveStateToJSON();
     }
 }
@@ -875,7 +888,7 @@ void phase6_z_lift_to_eject_state(bool reset = false) {
         std::cout << "Entering phase 6: Z Lift to Eject Position..." << std::endl;
         started = true;
         double currentZ = g_marlin->zPos;
-        currentZ += canToEject;
+        currentZ += openToEjectOffset;
         g_marlin->moveZTo(currentZ);
         saveStateToJSON();
         return;
@@ -990,6 +1003,72 @@ void phase9_z_next_can_state(bool reset = false) {
     }
 }
 
+void eject_only_x_eject_state(bool reset = false) {
+    static bool started = false;
+
+    if (reset) {
+        started = false;
+        return;
+    }
+
+    if (!started) {
+        std::cout << "Entering eject-only X eject..." << std::endl;
+        started = true;
+        g_marlin->moveXTo(248, 600);  // Move to X=248 at 300 mm/min, ejects lifted can
+        saveStateToJSON();
+        return;
+    }
+
+    if (g_marlin->getState() == MarlinController::moveCompleted) {
+        std::cout << "Eject-only X eject complete" << std::endl;
+        machineState = eject_only_rehome;
+        started = false;  // Reset for next time
+        saveStateToJSON();
+    }
+}
+
+void eject_only_rehome_state(bool reset = false) {
+    static bool started = false;
+
+    if (reset) {
+        started = false;
+        return;
+    }
+
+    if (!started) {
+        std::cout << "Entering eject-only X rehoming..." << std::endl;
+        started = true;
+        g_marlin->homeX();
+        saveStateToJSON();
+        return;
+    }
+
+    if (g_marlin->getState() == MarlinController::xHomed) {
+        std::cout << "Eject-only sequence complete!" << std::endl;
+        
+        // Disable stepper motors after eject-only completion
+        if (disableSteppersAfterActions) {
+            std::cout << "Disabling stepper motors..." << std::endl;
+            g_marlin->sendGCode("M84");  // Disable all stepper motors
+        }
+        
+        // Decrement can count for eject-only operation
+        cansLoaded--;
+        std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
+        
+        // Turn off fans
+        if (g_marlin) {
+            g_marlin->setFanSpeed(0, 0);
+            g_marlin->setFanSpeed(1, 0);
+        }
+        
+        machineState = idle;
+        operationRunning = false;  // Clear operation flag
+        started = false;  // Reset for next time
+        saveStateToJSON();
+    }
+}
+
 void resetAllPhases() {
     pre_operation_z_homing_state(true);
     phase1_x_homing_state(true);
@@ -1001,6 +1080,8 @@ void resetAllPhases() {
     phase7_x_eject_state(true);
     phase8_x_rehoming_final_state(true);
     phase9_z_next_can_state(true);
+    eject_only_x_eject_state(true);
+    eject_only_rehome_state(true);
     resetCanLoadPhases();
 }
 
@@ -1044,6 +1125,14 @@ void dispenseStateMachine() {
 
         case phase9_z_next_can:
             phase9_z_next_can_state();
+            break;
+
+        case eject_only_x_eject:
+            eject_only_x_eject_state();
+            break;
+
+        case eject_only_rehome:
+            eject_only_rehome_state();
             break;
 
         case canLoad_step_1:
@@ -1153,7 +1242,7 @@ void canLoadStartPhase1() {
 void canLoadStartPhase2() {
     machineState = canLoad_step_2;      //Set state
     double currentZ = g_marlin->zPos;   //Get current Z position
-    currentZ -= canToEject;             //Move stack down by 21mm (canToEject = 21mm)
+    currentZ -= openToEjectOffset;             //Move stack down by 21mm (canToEject = 21mm)
     g_marlin->moveZTo(currentZ);        //Send movement command
     saveStateToJSON();                  //Save state
 }
@@ -1339,6 +1428,8 @@ void displayClockScreen() {
             case phase3_tab_lifting: stateStr = "LIFTING"; break;
             case phase4_lid_peeling: stateStr = "PEELING"; break;
             case phase5_x_rehoming: stateStr = "REHOMING"; break;
+            case eject_only_x_eject: stateStr = "EJECTING"; break;
+            case eject_only_rehome: stateStr = "REHOMING"; break;
             case initial_z_homing: stateStr = "Z INIT"; break;
             case initial_z_offsetting: stateStr = "Z SETUP"; break;
             case loading_first: stateStr = "LOADING"; break;
@@ -1427,7 +1518,7 @@ void displayAdjustZMenu() {
         g_display->drawString(0, 8, "EjectLast:");
         g_display->drawString(0, 16, std::to_string(ejectLast) + " mm");
         g_display->drawString(0, 24, "OpenLast:");
-        g_display->drawString(0, 32, std::to_string(openLast) + " mm");
+        g_display->drawString(0, 32, std::to_string(ejectLast - openToEjectOffset) + " mm");
         g_display->drawString(0, 48, "L:back U/D:adj");
         g_display->display();
     }
@@ -1507,6 +1598,8 @@ void displayStatus() {
             case phase3_tab_lifting: stateStr = "Tab Lifting"; break;
             case phase4_lid_peeling: stateStr = "Lid Peeling"; break;
             case phase5_x_rehoming: stateStr = "Rehoming"; break;
+            case eject_only_x_eject: stateStr = "Eject Only"; break;
+            case eject_only_rehome: stateStr = "Eject Rehome"; break;
             case initial_z_homing: stateStr = "Init Z Home"; break;
             case initial_z_offsetting: stateStr = "Z Offset"; break;
             case loading_first: stateStr = "Load First"; break;
@@ -1826,7 +1919,7 @@ void buttonLeftPressed() {
             currentMenu = SETTINGS_MENU;
             menuSelection = 0;
             saveStateToJSON();          // Save any Z adjustments
-            setCanOpenOffset(true);     // Update the Z offset calculation
+            setCanOpenOffset();     // Update the Z offset calculation
             displaySettingsMenu();
             break;
         case SCHEDULE_MODE_MENU:
@@ -1921,7 +2014,7 @@ void buttonOkPressed() {
                     break;
                 case 2: // Home Z
                     std::cout << "Executing: Home Z" << std::endl;
-                    setCanOpenOffset(true);     //Update Marlin with latest can count
+                    setCanOpenOffset();     //Update Marlin with latest can count
                     if (g_marlin) g_marlin->homeZ();
                     break;
                 case 3: // Food Dispense
@@ -2142,14 +2235,8 @@ int main() {
         // Initialize GPIO buttons
         initAllButtons();
 
-        loadStateFromJSON();        //Get this (z offset and can count)
-
-        // Safety check: Ensure Z position is safe after loading state
-        setCanOpenOffset(true);     //This will apply the safety limit and update Marlin
-
-        // Override loaded machine state - we always need to do Z homing on startup
-        machineState = initial_z_homing;
-        std::cout << "Forcing initial Z homing sequence..." << std::endl;
+        loadStateFromJSON();  //Get this (eject last offset and can count)
+        setCanOpenOffset();
 
         // Safety check: If loaded feed time is in the past, reschedule appropriately
         if (feedTime > 0) {
@@ -2223,11 +2310,10 @@ int main() {
             saveStateToJSON(); // Save the activated daily schedule
         }
 
-      //TODO CHECK FOR OFF STATE HERE
-
-        setCanOpenOffset(true);     //Update Marlin with that data
+        setCanOpenOffset();     //Update Marlin with that data
         
         // Set machine state to track Z homing during startup
+        std::cout << "Forcing initial Z homing sequence..." << std::endl;
         machineState = initial_z_homing;
         g_marlin->homeZ();          //Knowing that, do this Z home and will then offset so next can is in load position
         // saveStateToJSON();          // TEMPORARILY DISABLED - Save the startup state

@@ -26,7 +26,6 @@ public:
 
     double xPos = 0.00;
     double zPos = 0.00;
-    double zPosOffsetStart = 0.00;      //Z pos where next can is in the level/open position (7mm when all 6 loaded)
 
     bool burnExtraOK = false;
 
@@ -46,7 +45,6 @@ public:
     state getState() const { return marlinState; }
     state getCurrentState() const { return marlinState; }  // Alias for consistency
     void extractPosition(std::string response);
-    void setZPosOffsetStart(double offset);
     void setFanSpeed(int fanNumber, int speedPercent);  // Set fan speed 0-100%
 
 private:
