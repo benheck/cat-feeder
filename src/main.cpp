@@ -1972,17 +1972,16 @@ void buttonOkPressed() {
                 case 2: // Load Can
                     if (cansLoaded < 6) {       //Not full?
                         canLoadSequence = true;
+                        loadStepZ = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
+                        
                         if (cansLoaded == 0) {  //0 cans, the platform is already level and ready for insert (since it just ejected)
                             machineState = canLoad_step_2;
                             currentMenu = LOAD_CAN_STEP_2;
-                            loadStepZ = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
-                            canLoad_step_2_offset = openToEjectOffset; //After load, can is lowered by this much
                             menuSelection = 0;
                             displayLoadCanMenuStep2();
                         } else {
                             machineState = canLoad_step_1;
                             currentMenu = LOAD_CAN_STEP_1;
-                            loadStepZ = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
                             menuSelection = 0;
                             displayLoadCanMenuStep1();
                         }
