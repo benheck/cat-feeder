@@ -1975,15 +1975,29 @@ void buttonOkPressed() {
                         loadStepZ = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
                         
                         if (cansLoaded == 0) {  //0 cans, the platform is already level and ready for insert (since it just ejected)
-                            machineState = canLoad_step_2;
-                            currentMenu = LOAD_CAN_STEP_2;
-                            menuSelection = 0;
-                            displayLoadCanMenuStep2();
+                            if (g_marlin->getCurrentState() == MarlinController::idle) {
+                                std::cout << "Starting can load PHASE 2..." << std::endl;
+                                operationRunning = true;  // For state machine
+                                canLoadStartPhase2();  // This sets the appropriate machine state and starts movement
+                                currentMenu = LOAD_CAN_STEP_2;
+                                menuSelection = 0;
+                                displayLoadCanMenuStep2();
+                            } else {
+                                std::cout << "Marlin is busy - please wait and try again" << std::endl;
+                            }
+
                         } else {
-                            machineState = canLoad_step_1;
-                            currentMenu = LOAD_CAN_STEP_1;
-                            menuSelection = 0;
-                            displayLoadCanMenuStep1();
+                            // Immediately start phase 1 movement instead of just setting up menu
+                            if (g_marlin->getCurrentState() == MarlinController::idle) {
+                                std::cout << "Starting can load PHASE 1..." << std::endl;
+                                operationRunning = true;  // For state machine
+                                canLoadStartPhase1();  // This sets the appropriate machine state and starts movement
+                                currentMenu = LOAD_CAN_STEP_1;
+                                menuSelection = 0;
+                                displayLoadCanMenuStep1();
+                            } else {
+                                std::cout << "Marlin is busy - please wait and try again" << std::endl;
+                            }
                         }
                     }
 
