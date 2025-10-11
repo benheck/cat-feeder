@@ -1030,11 +1030,9 @@ void eject_only_x_eject_state(bool reset = false) {
         machineState = eject_only_rehome;
         started = false;  // Reset for next time
         std::cout << "DEBUG: operationRunning flag is: " << (operationRunning ? "true" : "false") << std::endl;
-        saveStateToJSON();
-        
+        saveStateToJSON();   
         // Make sure we continue the state machine
         std::cout << "DEBUG: About to call eject_only_rehome_state() directly" << std::endl;
-        eject_only_rehome_state();
     }
 }
 
