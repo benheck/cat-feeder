@@ -146,6 +146,9 @@ void canLoad_step_1_state(bool reset);
 void canLoad_step_2_state(bool reset);
 void resetCanLoadPhases();
 
+// Forward declarations for eject-only state functions
+void eject_only_rehome_state(bool reset = false);
+
 // Define your buttons here - adjust pin numbers as needed
 std::vector<GPIOButton> buttons = {
     GPIOButton(5, "BUTTON_UP", buttonUpPressed),
@@ -1033,16 +1036,15 @@ void eject_only_x_eject_state(bool reset = false) {
         saveStateToJSON();   
         // Make sure we continue the state machine
         std::cout << "DEBUG: About to call eject_only_rehome_state() directly" << std::endl;
+        eject_only_rehome_state();  // Call the next state immediately
     }
 }
 
-void eject_only_rehome_state(bool reset = false) {
+void eject_only_rehome_state(bool reset) {
     static bool started = false;
-    static bool zPositioning = false;
 
     if (reset) {
         started = false;
-        zPositioning = false;
         return;
     }
 
@@ -1054,32 +1056,31 @@ void eject_only_rehome_state(bool reset = false) {
         return;
     }
 
-    // X homing complete, now handle Z positioning
-    if (!zPositioning && g_marlin->getState() == MarlinController::xHomed) {
+    // X homing complete, now handle can count and Z positioning
+    if (g_marlin->getState() == MarlinController::xHomed) {
         std::cout << "Eject-only X rehoming complete!" << std::endl;
         
-        // Decrement can count for eject-only operation
+        // Decrement can count for eject-only operation (like dispense sequence)
         cansLoaded--;
-        std::cout << "DEBUG: Can count decremented. New cansLoaded: " << cansLoaded << std::endl;
+        std::cout << "Can ejected. Remaining cans: " << cansLoaded << std::endl;
         
-        // Position next can flush if there are more cans
+        // Position next can flush if there are more cans (like dispense sequence)
         if (cansLoaded > 0) {
             std::cout << "Positioning next can flush..." << std::endl;
-            zPositioning = true;
             double currentZ = g_marlin->zPos;
             currentZ += nextCan;
             g_marlin->moveZTo(currentZ);
-            std::cout << "Moving Z to position next can at flush level" << std::endl;
-            return;
         } else {
-            std::cout << "No more cans - skipping Z positioning" << std::endl;
-            zPositioning = false; // Skip Z positioning
+            std::cout << "Last can ejected - skipping Z positioning" << std::endl;
+            // Go directly to completion without moving Z
         }
+        saveStateToJSON();
+        return;
     }
 
-    // Z positioning complete (or skipped), finish the sequence
-    if (!zPositioning || (zPositioning && g_marlin->getState() == MarlinController::idle)) {
-        std::cout << "DEBUG: Finishing eject-only sequence. Final cansLoaded: " << cansLoaded << std::endl;
+    // Z positioning complete (or skipped), finish the sequence (like dispense sequence)
+    if (cansLoaded == 0 || g_marlin->getState() == MarlinController::idle) {
+        std::cout << "Eject-only sequence complete!" << std::endl;
         
         // Disable stepper motors after eject-only completion
         if (disableSteppersAfterActions) {
@@ -1093,14 +1094,16 @@ void eject_only_rehome_state(bool reset = false) {
             g_marlin->setFanSpeed(1, 0);
         }
         
-        std::cout << "Eject-only sequence complete!" << std::endl;
+        std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
+        std::cout << "Final Z position: " << g_marlin->zPos << "mm" << std::endl;
+        
+        // Reset Marlin to idle state (like dispense sequence)
+        g_marlin->setState(MarlinController::idle);
+        
         machineState = idle;
         operationRunning = false;  // Clear operation flag
         started = false;  // Reset for next time
-        zPositioning = false;
-        std::cout << "DEBUG: About to save state with cansLoaded = " << cansLoaded << std::endl;
         saveStateToJSON();
-        std::cout << "DEBUG: State saved." << std::endl;
     }
 }
 
