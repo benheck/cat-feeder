@@ -141,6 +141,7 @@ void displayLoadCanMenuStep2();
 void displayMainMenu();
 
 // Forward declarations for can loading state functions
+double canLoad_step_2_offset;
 void canLoad_step_1_state(bool reset);
 void canLoad_step_2_state(bool reset);
 void resetCanLoadPhases();
@@ -1236,13 +1237,15 @@ void canLoadStartPhase1() {         //If more than 0 cans already loaded, move c
     double loadStep1Z = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
     loadStep1Z -= nextCan;                    //Move down 37mm to slide in next can. Next can will be 21mm over the flush edge
     g_marlin->moveZTo(loadStep1Z);            //Send that command
+    canLoad_step_2_offset = openToEjectOffset; //Store offset for step 2 (either 21 or 37)
     saveStateToJSON();                        //Save state
 }
 
 void canLoadStartPhase2() {
     machineState = canLoad_step_2;            //Set state
     double loadStep2Z = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
-    loadStep2Z -= cartridgeHeight;            //Move down another can height to position new can correctly. New can will then be flush and ready to open
+    //If zero cans were loaded, canLoad_step_2_offset is 21, else it's 37. Both will make the next can (new can) flush with the platform
+    loadStep2Z -= canLoad_step_2_offset;            //Move down another can height to position new can correctly. New can will then be flush and ready to open
     g_marlin->moveZTo(loadStep2Z);            //Send movement command
     saveStateToJSON();                        //Save state
 }
@@ -1739,7 +1742,6 @@ void checkWebCommands() {               // Check for web commands (non-destructi
     }
 }
 
-
 void buttonUpPressed() {            // Default button callback functions
     switch(currentMenu) {
         case CLOCK_SCREEN:
@@ -1975,6 +1977,7 @@ void buttonOkPressed() {
                         if (cansLoaded == 0) {  //0 cans, the platform is already level and ready for insert (since it just ejected)
                             machineState = canLoad_step_2;
                             currentMenu = LOAD_CAN_STEP_2;
+                            canLoad_step_2_offset = openToEjectOffset; //Default to 21mm offset for zero cans loaded
                             menuSelection = 0;
                             displayLoadCanMenuStep2();
                         } else {
