@@ -996,6 +996,11 @@ void phase9_z_next_can_state(bool reset = false) {
             g_marlin->sendGCode("M84");  // Disable all stepper motors
         }
         
+        // Set fan to continue running for 5 more minutes
+        auto now = std::chrono::system_clock::now();
+        fanStopTime = std::chrono::system_clock::to_time_t(now + std::chrono::minutes(5));
+        std::cout << "Fan will continue running for 5 minutes..." << std::endl;
+        
         // Display final state
         std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
         std::cout << "Final Z position: " << g_marlin->zPos << "mm" << std::endl;
@@ -1088,11 +1093,10 @@ void eject_only_rehome_state(bool reset) {
             g_marlin->sendGCode("M84");  // Disable all stepper motors
         }
         
-        // Turn off fans
-        if (g_marlin) {
-            g_marlin->setFanSpeed(0, 0);
-            g_marlin->setFanSpeed(1, 0);
-        }
+        // Set fan to continue running for 5 more minutes (like dispense sequence)
+        auto now = std::chrono::system_clock::now();
+        fanStopTime = std::chrono::system_clock::to_time_t(now + std::chrono::minutes(5));
+        std::cout << "Fan will continue running for 5 minutes..." << std::endl;
         
         std::cout << "Final cansLoaded: " << cansLoaded << std::endl;
         std::cout << "Final Z position: " << g_marlin->zPos << "mm" << std::endl;
