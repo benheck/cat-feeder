@@ -666,9 +666,10 @@ void loadStateFromJSON(const std::string& filename = "machine_state.json") {
     }
 }
 
-double setCanOpenOffset() { //Calcs z for the next can to be opened to be flush with the platform
-
+double getCanOpenOffset() { //Calcs z for the next can to be opened to be flush with the platform
+    //Uses ejectLast (which user can tweak) and cansLoaded (a variable we track)
     //Default formula for 2+ cans (and fallback for any unhandled cases)
+    //Computes offset for 1 can, and then subtracts the delta from the Z (ie 6 cans - 1 = 5 * cartridgeHeight)
     double offsetFromZ = (ejectLast - openToEjectOffset) - ((cansLoaded - 1) * cartridgeHeight);
 
     //Then handle variance:
@@ -717,8 +718,7 @@ void pre_operation_z_homing_state(bool reset = false) {
         homed = true;
         
         // Now calculate and move to the offset position
-        double offset = setCanOpenOffset();  // Calculate but don't send to Marlin yet
-        g_marlin->moveZTo(offset);  // Move to the calculated position
+        g_marlin->moveZTo(getCanOpenOffset());  // Move to the calculated position based on can count
         return;
     }
 
@@ -1231,20 +1231,20 @@ void ejectOnlyStart() {
 
 }
 
-void canLoadStartPhase1() {
-    machineState = canLoad_step_1;      //Set state
-    double currentZ = g_marlin->zPos;   //Get zPos
-    currentZ -= nextCan;                //Set target to -37mm from current
-    g_marlin->moveZTo(currentZ);        //Send that command
-    saveStateToJSON();                  //Save state
+void canLoadStartPhase1() {         //If more than 0 cans already loaded, move cans down to slide new one in
+    machineState = canLoad_step_1;            //Set state
+    double loadStep1Z = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
+    loadStep1Z -= nextCan;                    //Move down 37mm to slide in next can. Next can will be 21mm over the flush edge
+    g_marlin->moveZTo(loadStep1Z);            //Send that command
+    saveStateToJSON();                        //Save state
 }
 
 void canLoadStartPhase2() {
-    machineState = canLoad_step_2;      //Set state
-    double currentZ = g_marlin->zPos;   //Get current Z position
-    currentZ -= openToEjectOffset;             //Move stack down by 21mm (canToEject = 21mm)
-    g_marlin->moveZTo(currentZ);        //Send movement command
-    saveStateToJSON();                  //Save state
+    machineState = canLoad_step_2;            //Set state
+    double loadStep2Z = getCanOpenOffset();   //Get current Z position based on can count (Z home would have gone here)
+    loadStep2Z -= cartridgeHeight;            //Move down another can height to position new can correctly. New can will then be flush and ready to open
+    g_marlin->moveZTo(loadStep2Z);            //Send movement command
+    saveStateToJSON();                        //Save state
 }
 
 
@@ -1317,7 +1317,7 @@ void canLoad_step_2_state(bool reset = false) {
         
         // Return to main menu
         currentMenu = MAIN_MENU;
-        menuSelection = 2;      // Position cursor on "3.Load Can"
+        menuSelection = 2;  //Position cursor on "3.Load Can" so user can press button again to add another without looking
         displayMainMenu();
         
         std::cout << "Can loading sequence complete!" << std::endl;
@@ -1767,7 +1767,7 @@ void buttonUpPressed() {            // Default button callback functions
             // Increase ejectLast by 0.25mm
             ejectLast += 0.25;
             if (g_marlin) {
-                g_marlin->moveZTo(setCanOpenOffset());  // Move to new position
+                g_marlin->moveZTo(getCanOpenOffset());  // Move to new position
             }
             displayAdjustZMenu();
             break;
@@ -1827,7 +1827,7 @@ void buttonDownPressed() {
             // Decrease ejectLast by 0.25mm
             ejectLast -= 0.25;
             if (g_marlin) {
-                g_marlin->moveZTo(setCanOpenOffset());  // Move to new position
+                g_marlin->moveZTo(getCanOpenOffset());  // Move to new position
             }
             displayAdjustZMenu();
             break;
@@ -1919,7 +1919,7 @@ void buttonLeftPressed() {
             currentMenu = SETTINGS_MENU;
             menuSelection = 0;
             saveStateToJSON();          // Save any Z adjustments
-            setCanOpenOffset();     // Update the Z offset calculation
+            getCanOpenOffset();     // Update the Z offset calculation
             displaySettingsMenu();
             break;
         case SCHEDULE_MODE_MENU:
@@ -2014,7 +2014,7 @@ void buttonOkPressed() {
                     break;
                 case 2: // Home Z
                     std::cout << "Executing: Home Z" << std::endl;
-                    setCanOpenOffset();     //Update Marlin with latest can count
+                    getCanOpenOffset();     //Update Marlin with latest can count
                     if (g_marlin) g_marlin->homeZ();
                     break;
                 case 3: // Food Dispense
@@ -2236,7 +2236,7 @@ int main() {
         initAllButtons();
 
         loadStateFromJSON();  //Get this (eject last offset and can count)
-        setCanOpenOffset();
+        getCanOpenOffset();
 
         // Safety check: If loaded feed time is in the past, reschedule appropriately
         if (feedTime > 0) {
@@ -2310,8 +2310,6 @@ int main() {
             saveStateToJSON(); // Save the activated daily schedule
         }
 
-        setCanOpenOffset();     //Update Marlin with that data
-        
         // Set machine state to track Z homing during startup
         std::cout << "Forcing initial Z homing sequence..." << std::endl;
         machineState = initial_z_homing;
@@ -2337,6 +2335,8 @@ int main() {
             if (machineState == initial_z_homing && g_marlin && g_marlin->getCurrentState() == MarlinController::idle) {
                 std::cout << "Startup Z homing complete - machine now idle" << std::endl;
                 machineState = idle;
+                // Now calculate and move to the offset position
+                g_marlin->moveZTo(getCanOpenOffset());  // Move to the calculated position based on can count
                 saveStateToJSON();
             }
             
