@@ -1446,7 +1446,7 @@ void displayClockScreen() {
         g_display->drawString(0, 0, nowDate + " " + timeStr);
 
         // Line 1: Display cans left
-        g_display->drawString(16, 8, "CANS LEFT: " + std::to_string(cansLoaded));
+        g_display->drawString(16, 8, "REMAIN: " + std::to_string(cansLoaded));
 
         // Line 3: Display schedule mode
         std::string modeStr = (scheduleMode == INTERVAL_MODE) ? "   -INTERVAL-" : "   -DAILY-";
@@ -2122,6 +2122,38 @@ void buttonOkPressed() {
             // Set the schedule mode based on selection
             scheduleMode = (menuSelection == 0) ? INTERVAL_MODE : DAILY_MODE;
             std::cout << "Schedule mode set to: " << (scheduleMode == INTERVAL_MODE ? "Interval" : "Daily") << std::endl;
+            
+            // Recalculate feedTime based on the new mode
+            if (scheduleMode == INTERVAL_MODE) {
+                // Interval mode: start counting from now
+                auto now = std::time(nullptr);
+                feedTime = now + (feedGap * 3600);
+                std::cout << "Interval mode activated. Next feed in " << feedGap << " hours." << std::endl;
+            } else {
+                // Daily mode: calculate next occurrence of the scheduled time
+                auto now = std::time(nullptr);
+                struct tm* timeInfo = std::localtime(&now);
+                timeInfo->tm_hour = dailyFeedHour;
+                timeInfo->tm_min = dailyFeedMinute;
+                timeInfo->tm_sec = 0;
+                
+                std::time_t todayFeedTime = std::mktime(timeInfo);
+                
+                // If the time has already passed today, schedule for tomorrow
+                if (todayFeedTime <= now) {
+                    todayFeedTime += 24 * 3600; // Add 24 hours
+                    std::cout << "Daily mode activated. Next feed tomorrow at ";
+                } else {
+                    std::cout << "Daily mode activated. Next feed today at ";
+                }
+                
+                feedTime = todayFeedTime;
+                
+                char timeStr[32];
+                struct tm* feedTm = std::localtime(&feedTime);
+                std::strftime(timeStr, sizeof(timeStr), "%I:%M %p", feedTm);
+                std::cout << timeStr << std::endl;
+            }
             
             currentMenu = SETTINGS_MENU;
             menuSelection = 2;
