@@ -225,16 +225,16 @@ def get_dashboard_html() -> str:
         </div>
 
         <div style="text-align: center; margin-top: 20px;">
-            <button class="button" onclick="manualFeed()" id="feed-btn">
-                🍽️ Manual Feed
-            </button>
-            <button class="button" onclick="ejectOnly()" id="eject-btn" style="background-color: #fd7e14;">
-                📤 Eject Only
-            </button>
-            <button class="button" onclick="refreshStatus()">
+            <button class="button" onclick="refreshStatus()" style="display: block; width: 100%; margin-bottom: 30px;">
                 🔄 Refresh
             </button>
-            <button class="button" onclick="terminateSystem()" id="terminate-btn" style="background-color: #dc3545;">
+            <button class="button" onclick="ejectOnly()" id="eject-btn" style="display: block; width: 100%; margin-bottom: 10px; background-color: #fd7e14;">
+                📤 Eject Only
+            </button>
+            <button class="button" onclick="manualFeed()" id="feed-btn" style="display: block; width: 100%; margin-bottom: 10px;">
+                🍽️ Manual Feed
+            </button>
+            <button class="button" onclick="terminateSystem()" id="terminate-btn" style="display: block; width: 100%; margin-top: 20px; background-color: #dc3545;">
                 🛑 Terminate System
             </button>
         </div>
