@@ -641,6 +641,62 @@ void loadStateFromJSON(const std::string& filename = "machine_state.json") {
         
         file.close();
         
+        // Validate loaded values before applying them
+        bool valid = true;
+        
+        // Validate cans_loaded (0-6 range)
+        if (cans_loaded_value < 0 || cans_loaded_value > 6) {
+            std::cerr << "ERROR: Invalid cans_loaded value: " << cans_loaded_value << " (valid: 0-6). Using default 0." << std::endl;
+            cans_loaded_value = 0;
+            valid = false;
+        }
+        
+        // Validate z_position (reasonable range: 0-400mm)
+        if (z_pos < 0 || z_pos > 400) {
+            std::cerr << "ERROR: Invalid z_position value: " << z_pos << " (valid: 0-400). Ignoring - will home on startup." << std::endl;
+            z_pos = 0;
+            valid = false;
+        }
+        
+        // Validate x_position (reasonable range: 0-300mm)
+        if (x_pos < 0 || x_pos > 300) {
+            std::cerr << "ERROR: Invalid x_position value: " << x_pos << " (valid: 0-300). Ignoring - will home on startup." << std::endl;
+            x_pos = 0;
+            valid = false;
+        }
+        
+        // Validate eject_last (reasonable range: 280-340mm)
+        if (eject_last_value < 280 || eject_last_value > 340) {
+            std::cerr << "ERROR: Invalid eject_last value: " << eject_last_value << " (valid: 280-340). Using default 318." << std::endl;
+            eject_last_value = 318.0;
+            valid = false;
+        }
+        
+        // Validate feed_gap (reasonable range: 1-48 hours)
+        if (feed_gap_value < 1.0 || feed_gap_value > 48.0) {
+            std::cerr << "ERROR: Invalid feed_gap value: " << feed_gap_value << " (valid: 1-48). Using default 8." << std::endl;
+            feed_gap_value = 8.0;
+            valid = false;
+        }
+        
+        // Validate daily_feed_hour (0-23)
+        if (daily_feed_hour_value < 0 || daily_feed_hour_value > 23) {
+            std::cerr << "ERROR: Invalid daily_feed_hour value: " << daily_feed_hour_value << " (valid: 0-23). Using default 6." << std::endl;
+            daily_feed_hour_value = 6;
+            valid = false;
+        }
+        
+        // Validate daily_feed_minute (0-59)
+        if (daily_feed_minute_value < 0 || daily_feed_minute_value > 59) {
+            std::cerr << "ERROR: Invalid daily_feed_minute value: " << daily_feed_minute_value << " (valid: 0-59). Using default 30." << std::endl;
+            daily_feed_minute_value = 30;
+            valid = false;
+        }
+        
+        if (!valid) {
+            std::cerr << "WARNING: Corrupted values detected in JSON file. Using safe defaults where needed." << std::endl;
+        }
+        
         // Restore the states and positions
         machineState = stringToMachineState(machine_state_str);
         g_marlin->setState(stringToMarlinState(marlin_state_str));
@@ -1047,9 +1103,11 @@ void eject_only_x_eject_state(bool reset = false) {
 
 void eject_only_rehome_state(bool reset) {
     static bool started = false;
+    static bool canDecremented = false;  // Prevent multiple decrements
 
     if (reset) {
         started = false;
+        canDecremented = false;  // Reset the flag
         return;
     }
 
@@ -1062,11 +1120,12 @@ void eject_only_rehome_state(bool reset) {
     }
 
     // X homing complete, now handle can count and Z positioning
-    if (g_marlin->getState() == MarlinController::xHomed) {
+    if (g_marlin->getState() == MarlinController::xHomed && !canDecremented) {
         std::cout << "Eject-only X rehoming complete!" << std::endl;
         
         // Decrement can count for eject-only operation (like dispense sequence)
         cansLoaded--;
+        canDecremented = true;  // Mark as decremented to prevent doing it again
         std::cout << "Can ejected. Remaining cans: " << cansLoaded << std::endl;
         
         // Position next can flush if there are more cans (like dispense sequence)
@@ -1107,6 +1166,7 @@ void eject_only_rehome_state(bool reset) {
         machineState = idle;
         operationRunning = false;  // Clear operation flag
         started = false;  // Reset for next time
+        canDecremented = false;  // Reset for next time
         saveStateToJSON();
     }
 }
