@@ -106,6 +106,22 @@ void MarlinController::sendGCode(const std::string& gcode) {
     std::cout << "Sent: " << gcode << std::endl;
 }
 
+void MarlinController::safeX() {
+
+    if (!isConnected()) {
+        std::cerr << "Error: Not connected to Marlin" << std::endl;
+        return;
+    }
+
+    //Set to relative positioning
+    sendGCode("G91");
+    //Move X past home
+    sendGCode("G0 X30 F3000");
+    //Set back to absolute positioning
+    sendGCode("G90");
+
+}
+
 void MarlinController::homeX() {
 
     if (!isConnected()) {

@@ -37,6 +37,7 @@ public:
     bool isConnected() const;
     void handleResponse(std::string response);
 
+    void safeX();
     void homeX();
     void moveXTo(double position, double speed);
     void homeZ();

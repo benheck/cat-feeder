@@ -18,6 +18,7 @@
 
 enum state {
     idle,                       //Must have 1 or more cans loaded for this state
+    pre_operation_x_pasthome,   //Move X past home to ensure it can find home
     pre_operation_z_homing,     //Z home before each dispense/eject operation
     phase1_x_homing,
     phase2_x_to_start,
@@ -361,6 +362,7 @@ void clearButtonCallback(const std::string& name) {
 std::string machineStateToString(state s) {
     switch(s) {
         case idle: return "idle";
+        case pre_operation_x_pasthome: return "pre_operation_x_pasthome";
         case pre_operation_z_homing: return "pre_operation_z_homing";
         case phase1_x_homing: return "phase1_x_homing";
         case phase2_x_to_start: return "phase2_x_to_start";
@@ -385,6 +387,7 @@ std::string machineStateToString(state s) {
 // Helper function to convert string to machine state enum
 state stringToMachineState(const std::string& s) {
     if (s == "idle") return idle;
+    if (s == "pre_operation_x_pasthome") return pre_operation_x_pasthome;
     if (s == "pre_operation_z_homing") return pre_operation_z_homing;
     if (s == "phase1_x_homing") return phase1_x_homing;
     if (s == "phase2_x_to_start") return phase2_x_to_start;
@@ -752,6 +755,32 @@ double getCanOpenOffset() { //Calcs z for the next can to be opened to be flush 
 
 }
 
+void pre_operation_x_pasthome_state(bool reset = false) {
+    static bool started = false;
+    
+    if (reset) {
+        started = false;
+        return;
+    }
+
+    if (!started) {
+        std::cout << "Pre-operation X move past sensor..." << std::endl;
+        started = true;
+        g_marlin->safeX();  // Move X out past sensor before homing Z to ensure X is past the sensor so it will home correctly later
+        machineState = pre_operation_x_pasthome;
+        saveStateToJSON();
+        return;
+    }
+
+    // Check if X move is complete
+    if (g_marlin->getState() == MarlinController::idle) {
+        std::cout << "Pre-operation X move complete, proceeding to Z homing..." << std::endl;
+        started = false;  // Reset for next time
+        // Now proceed to Z homing
+        pre_operation_z_homing_state();
+    }
+}
+
 void pre_operation_z_homing_state(bool reset = false) {
     static bool started = false;
     static bool homed = false;
@@ -766,6 +795,7 @@ void pre_operation_z_homing_state(bool reset = false) {
         std::cout << "Pre-operation Z homing..." << std::endl;
         started = true;
         
+        //Both errors have been because X was below the sensor when homing Z (thus couldn't home)
         g_marlin->homeZ();  // Just home Z, don't move to offset yet
         machineState = pre_operation_z_homing;
         saveStateToJSON();
@@ -1172,6 +1202,7 @@ void eject_only_rehome_state(bool reset) {
 }
 
 void resetAllPhases() {
+    pre_operation_x_pasthome_state(true);
     pre_operation_z_homing_state(true);
     phase1_x_homing_state(true);
     phase2_x_to_start_state(true);
@@ -1189,6 +1220,10 @@ void resetAllPhases() {
 
 void dispenseStateMachine() {
     switch(machineState) {
+        case pre_operation_x_pasthome:
+            pre_operation_x_pasthome_state();
+            break;
+
         case pre_operation_z_homing:
             pre_operation_z_homing_state();
             break;
@@ -1287,8 +1322,8 @@ void dispenseFoodStart() {
     // Save initial state
     saveStateToJSON();
     
-    // Start the sequence with Z homing
-    pre_operation_z_homing_state();
+    // Start the sequence with X move past sensor
+    pre_operation_x_pasthome_state();
 
     //machineState = phase5_x_rehoming;  //jump test
     //phase5_x_rehoming_state();          //jump test
@@ -1328,8 +1363,8 @@ void ejectOnlyStart() {
     // Save initial state
     saveStateToJSON();
     
-    // Start the sequence with Z homing (will handle eject positioning after homing)
-    pre_operation_z_homing_state();
+    // Start the sequence with X move past sensor (then Z homing will handle eject positioning)
+    pre_operation_x_pasthome_state();
 
 }
 
@@ -1526,6 +1561,7 @@ void displayClockScreen() {
         std::string stateStr;
         switch (machineState) {
             case idle: stateStr = "IDLE"; break;
+            case pre_operation_x_pasthome: stateStr = "X SAFE"; break;
             case pre_operation_z_homing: stateStr = "Z HOME"; break;
             case phase1_x_homing: stateStr = "HOMING"; break;
             case phase2_x_to_start: stateStr = "MOVING"; break;
@@ -1696,6 +1732,7 @@ void displayStatus() {
         std::string stateStr;
         switch (machineState) {
             case idle: stateStr = "Idle"; break;
+            case pre_operation_x_pasthome: stateStr = "Pre-Op X Safe"; break;
             case pre_operation_z_homing: stateStr = "Pre-Op Z Home"; break;
             case phase1_x_homing: stateStr = "Homing X"; break;
             case phase2_x_to_start: stateStr = "Move Start"; break;
