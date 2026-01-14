@@ -116,7 +116,7 @@ void MarlinController::safeX() {
     //Set to relative positioning
     sendGCode("G91");
     //Move X past home
-    sendGCode("G0 X30 F3000");
+    sendGCode("G0 X30 F600");
     //Set back to absolute positioning
     sendGCode("G90");
 
