@@ -777,7 +777,8 @@ void pre_operation_x_pasthome_state(bool reset = false) {
         std::cout << "Pre-operation X move complete, proceeding to Z homing..." << std::endl;
         started = false;  // Reset for next time
         // Now proceed to Z homing
-        pre_operation_z_homing_state();
+        machineState = pre_operation_z_homing;
+        saveStateToJSON();
     }
 }
 
