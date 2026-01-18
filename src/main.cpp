@@ -81,6 +81,13 @@ bool enableDebugOutput = true;   // Set to true to enable debug messages
 std::chrono::steady_clock::time_point lastDisplayActivity;
 const int displaySleepTimeoutSeconds = 120;  // 2 minutes
 
+// Marlin health check system
+bool healthCheckPerformed = false;           // Track if health check done for current feed cycle
+std::time_t lastHealthCheckTime = 0;        // Last time health check was performed
+const int healthCheckBeforeFeed = 3600;     // Check health 1 hour (3600 seconds) before feed
+std::string healthErrorMessage = "";        // Error message if health check failed
+bool healthCheckFailed = false;              // Flag indicating health check failure
+
 // Signal handler for graceful shutdown
 void signalHandler(int signal) {
     std::cout << "\nReceived signal " << signal << ". Initiating graceful shutdown..." << std::endl;
@@ -489,6 +496,8 @@ void saveStateToJSON(const std::string& filename = "machine_state.json") {
         file << "  \"daily_feed_hour\": " << dailyFeedHour << ",\n";
         file << "  \"daily_feed_minute\": " << dailyFeedMinute << ",\n";
         file << "  \"daily_weekend_only\": " << (dailyWeekendOnly ? "true" : "false") << ",\n";
+        file << "  \"health_check_failed\": " << (healthCheckFailed ? "true" : "false") << ",\n";
+        file << "  \"health_error_message\": \"" << healthErrorMessage << "\",\n";
         file << "  \"timestamp\": \"" << std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count() << "\"\n";
         file << "}\n";
@@ -639,6 +648,21 @@ void loadStateFromJSON(const std::string& filename = "machine_state.json") {
                 weekend_str.erase(0, weekend_str.find_first_not_of(" \t"));
                 weekend_str.erase(weekend_str.find_last_not_of(" \t,") + 1);
                 daily_weekend_only_value = (weekend_str == "true");
+            }
+            else if (line.find("\"health_check_failed\":") != std::string::npos) {
+                size_t start = line.find(":") + 1;
+                size_t comma = line.find(",", start);
+                if (comma == std::string::npos) comma = line.length();
+                std::string health_str = line.substr(start, comma - start);
+                health_str.erase(0, health_str.find_first_not_of(" \t"));
+                health_str.erase(health_str.find_last_not_of(" \t,") + 1);
+                healthCheckFailed = (health_str == "true");
+            }
+            else if (line.find("\"health_error_message\":") != std::string::npos) {
+                size_t start = line.find(":") + 1;
+                size_t quote1 = line.find("\"", start) + 1;
+                size_t quote2 = line.find("\"", quote1);
+                healthErrorMessage = line.substr(quote1, quote2 - quote1);
             }
         }
         
@@ -2542,6 +2566,9 @@ int main() {
 
         // Set machine state to track Z homing during startup
         std::cout << "Forcing initial Z homing sequence..." << std::endl;
+        std::cout << "Moving X past sensor before Z home..." << std::endl;
+        g_marlin->safeX();  // Ensure X is past sensor before Z homing
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));  // Wait for safeX to complete
         machineState = initial_z_homing;
         g_marlin->homeZ();          //Knowing that, do this Z home and will then offset so next can is in load position
         // saveStateToJSON();          // TEMPORARILY DISABLED - Save the startup state
@@ -2576,6 +2603,80 @@ int main() {
                 std::cout << "*** STARTUP SEQUENCE COMPLETE - Automatic feeding now enabled ***" << std::endl;
             }
             
+            // Marlin health check - 1 hour before feeding time
+            if (!operationRunning && machineState == idle && feedTime > 0 && startupSequenceComplete && !healthCheckPerformed) {
+                auto now = std::chrono::system_clock::now();
+                std::time_t currentTime = std::chrono::system_clock::to_time_t(now);
+                
+                // Check if we're within 1 hour of feed time
+                if (feedTime - currentTime <= healthCheckBeforeFeed && feedTime > currentTime) {
+                    std::cout << "\n*** MARLIN HEALTH CHECK (1 hour before feed) ***" << std::endl;
+                    std::cout << "Feed time in " << (feedTime - currentTime) / 60 << " minutes" << std::endl;
+                    
+                    bool healthCheckPassed = false;
+                    int retryAttempts = 3;
+                    
+                    // Try health check with retries
+                    for (int attempt = 1; attempt <= retryAttempts && !healthCheckPassed; attempt++) {
+                        std::cout << "Attempt " << attempt << "/" << retryAttempts << ": Sending M114 position query..." << std::endl;
+                        
+                        g_marlin->setState(MarlinController::getPosition);
+                        g_marlin->sendGCode("M114");
+                        
+                        // Wait for response
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                        
+                        // Check if we got a response (state should have returned to idle)
+                        if (g_marlin->getState() == MarlinController::idle) {
+                            std::cout << "✓ Health check PASSED on attempt " << attempt << std::endl;
+                            std::cout << "  Current position: X=" << g_marlin->xPos << " Z=" << g_marlin->zPos << std::endl;
+                            healthCheckPassed = true;
+                        } else {
+                            std::cout << "✗ Attempt " << attempt << " FAILED - Marlin state: " << g_marlin->getState() << std::endl;
+                            if (attempt < retryAttempts) {
+                                std::cout << "  Retrying in 2 seconds..." << std::endl;
+                                std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+                            }
+                        }
+                    }
+                    
+                    // If all retries failed, warn and skip this feed
+                    if (!healthCheckPassed) {
+                        std::cout << "\n⚠⚠⚠ CRITICAL: Marlin health check FAILED after " << retryAttempts << " attempts ⚠⚠⚠" << std::endl;
+                        std::cout << "Possible causes:" << std::endl;
+                        std::cout << "  - Serial communication degraded over time" << std::endl;
+                        std::cout << "  - Marlin firmware hung or unresponsive" << std::endl;
+                        std::cout << "  - USB connection issue" << std::endl;
+                        std::cout << "\nSkipping next scheduled feed for safety" << std::endl;
+                        std::cout << "RECOMMENDED: Restart the cat feeder service to reset connection" << std::endl;
+                        std::cout << "  systemctl restart cat-feeder" << std::endl;
+                        
+                        // Set health error state (visible to web app)
+                        healthCheckFailed = true;
+                        healthErrorMessage = "Marlin comm check failed - feed skipped";
+                        
+                        // Advance feed time to skip this feed
+                        if (scheduleMode == DAILY_MODE) {
+                            feedTime += 24 * 3600; // Skip to tomorrow
+                        } else {
+                            feedTime = currentTime + (feedGap * 3600); // Skip to next interval
+                        }
+                        saveStateToJSON();
+                    } else {
+                        // Clear error state on successful health check
+                        if (healthCheckFailed) {
+                            healthCheckFailed = false;
+                            healthErrorMessage = "";
+                            std::cout << "✓ Health error cleared - system recovered" << std::endl;
+                        }
+                    }
+                    
+                    lastHealthCheckTime = currentTime;
+                    healthCheckPerformed = true;
+                    std::cout << "*** END HEALTH CHECK ***\n" << std::endl;
+                }
+            }
+            
             // Check if it's time to start a scheduled feed
             if (!operationRunning && machineState == idle && feedTime > 0 && startupSequenceComplete) {
                 auto now = std::chrono::system_clock::now();
@@ -2605,6 +2706,7 @@ int main() {
                             feedTime = currentTime + (feedGap * 3600); // Add interval
                             std::cout << "*** DEBUG: Advanced interval feed time by " << feedGap << " hours ***" << std::endl;
                         }
+                        healthCheckPerformed = false; // Reset for next feed cycle
                         saveStateToJSON(); // Save the new feed time
                     }
 

@@ -80,6 +80,8 @@ async def get_status():
         "daily_feed_minute": state.get("daily_feed_minute", 0),
         "eject_last": state.get("eject_last", 318),  # Add Z position info
         "z_position": state.get("z_position", 0),    # Current Z position
+        "health_check_failed": state.get("health_check_failed", False),  # Health check status
+        "health_error_message": state.get("health_error_message", ""),   # Health error details
         "raw_state": state  # Include full state for debugging
     }
     
@@ -189,6 +191,23 @@ def get_dashboard_html() -> str:
         }
         .warning { color: #dc3545; }
         .success { color: #28a745; }
+        .health-alert {
+            background-color: #f8d7da;
+            border: 2px solid #dc3545;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+            color: #721c24;
+            display: none;
+        }
+        .health-alert.active {
+            display: block;
+        }
+        .health-alert-title {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
         #status { margin-top: 20px; }
         .last-updated {
             font-size: 0.9em;
@@ -201,6 +220,14 @@ def get_dashboard_html() -> str:
 <body>
     <div class="container">
         <h1>🐱 Cat Feeder Dashboard</h1>
+        
+        <div id="health-alert" class="health-alert">
+            <div class="health-alert-title">⚠️ HEALTH CHECK FAILED</div>
+            <div id="health-error-message"></div>
+            <div style="margin-top: 8px; font-size: 0.9em;">
+                Recommended: Restart the cat feeder service
+            </div>
+        </div>
         
         <div id="status">
             <div class="status-card">
@@ -263,6 +290,16 @@ def get_dashboard_html() -> str:
                 } else {
                     opStatus.textContent = 'IDLE';
                     opStatus.className = 'status-value success';
+                }
+                
+                // Show/hide health alert
+                const healthAlert = document.getElementById('health-alert');
+                const healthMessage = document.getElementById('health-error-message');
+                if (data.health_check_failed) {
+                    healthAlert.classList.add('active');
+                    healthMessage.textContent = data.health_error_message || 'Communication check failed - feed skipped';
+                } else {
+                    healthAlert.classList.remove('active');
                 }
                 
                 // Disable buttons if operation is running
