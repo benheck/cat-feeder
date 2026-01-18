@@ -944,6 +944,7 @@ void phase4_lid_peeling_state(bool reset = false) {
 
 void phase5_x_rehoming_state(bool reset = false) {
     static bool started = false;
+    static std::chrono::time_point<std::chrono::system_clock> startTime;
     
     if (reset) {
         started = false;
@@ -953,9 +954,25 @@ void phase5_x_rehoming_state(bool reset = false) {
     if (!started) {     //Starting code
         std::cout << "Entering phase 5: X Re-Homing..." << std::endl;
         started = true;
+        startTime = std::chrono::system_clock::now();
+        g_marlin->safeX();  // Ensure X is past sensor before homing
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));  // Wait for safeX to complete
         g_marlin->homeX();
         saveStateToJSON();
         return;
+    }
+
+    // Check for timeout (30 seconds)
+    auto now = std::chrono::system_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - startTime).count();
+    if (elapsed > 30) {
+        std::cout << "ERROR: Phase 5 X homing timeout after " << elapsed << " seconds!" << std::endl;
+        std::cout << "Current Marlin state: " << g_marlin->getState() << std::endl;
+        // Force safeX and retry
+        g_marlin->safeX();
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        g_marlin->homeX();
+        startTime = std::chrono::system_clock::now();  // Reset timer
     }
 
     if (g_marlin->getState() == MarlinController::xHomed) {
@@ -1019,6 +1036,7 @@ void phase7_x_eject_state(bool reset = false) {
 
 void phase8_x_rehoming_final_state(bool reset = false) {
     static bool started = false;
+    static std::chrono::time_point<std::chrono::system_clock> startTime;
 
     if (reset) {
         started = false;
@@ -1028,14 +1046,43 @@ void phase8_x_rehoming_final_state(bool reset = false) {
     if (!started) {
         std::cout << "Entering phase 8: X Re-Homing Final..." << std::endl;
         started = true;
-        g_marlin->setState(MarlinController::moveStarted);
+        startTime = std::chrono::system_clock::now();
+        // Ensure X is past sensor before homing
+        g_marlin->safeX();
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));  // Wait for safeX to complete
+        std::cout << "Starting homeX() command..." << std::endl;
         g_marlin->homeX();
         saveStateToJSON();
         return;
     }
 
+    // Check for timeout (30 seconds)
+    auto now = std::chrono::system_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - startTime).count();
+    
+    // Debug output every 5 seconds
+    if (elapsed > 0 && elapsed % 5 == 0) {
+        static int lastReported = 0;
+        if (elapsed != lastReported) {
+            std::cout << "Phase 8 waiting... Elapsed: " << elapsed << "s, Marlin state: " << g_marlin->getState() << std::endl;
+            lastReported = elapsed;
+        }
+    }
+    
+    if (elapsed > 30) {
+        std::cout << "ERROR: Phase 8 X homing timeout after " << elapsed << " seconds!" << std::endl;
+        std::cout << "Current Marlin state: " << g_marlin->getState() << std::endl;
+        std::cout << "Expected state: " << MarlinController::xHomed << std::endl;
+        // Force safeX and retry
+        g_marlin->safeX();
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::cout << "Retrying homeX() after timeout..." << std::endl;
+        g_marlin->homeX();
+        startTime = std::chrono::system_clock::now();  // Reset timer
+    }
+
     if (g_marlin->getState() == MarlinController::xHomed) {
-        std::cout << "Phase 8 complete: X Re-Homed Final" << std::endl;
+        std::cout << "Phase 8 complete: X Re-Homed Final (after " << elapsed << "s)" << std::endl;
         machineState = phase9_z_next_can;
         started = false;  // Reset for next time
         saveStateToJSON();
@@ -1058,6 +1105,8 @@ void phase9_z_next_can_state(bool reset = false) {
         cansLoaded--;
         std::cout << "Can dispensed. Remaining cans: " << cansLoaded << std::endl;
         
+        g_marlin->safeX();
+
         // Check if there are remaining cans to position
         if (cansLoaded > 0) {
             std::cout << "Positioning next can flush..." << std::endl;

@@ -113,12 +113,17 @@ void MarlinController::safeX() {
         return;
     }
 
+    std::cout << "[safeX] Moving X past home sensor..." << std::endl;
+    std::cout << "[safeX] Current state before: " << marlinState << std::endl;
+    
     //Set to relative positioning
     sendGCode("G91");
     //Move X past home
     sendGCode("G0 X30 F600");
     //Set back to absolute positioning
     sendGCode("G90");
+    
+    std::cout << "[safeX] Commands sent, state after: " << marlinState << std::endl;
 
 }
 
@@ -231,7 +236,14 @@ void MarlinController::readerThreadFunction() {
 
 void MarlinController::handleResponse(std::string response) {
 
-    std::cout << "MARLIN:" << response << std::endl;
+    // Trim whitespace from response
+    size_t start = response.find_first_not_of(" \t\r\n");
+    size_t end = response.find_last_not_of(" \t\r\n");
+    if (start != std::string::npos && end != std::string::npos) {
+        response = response.substr(start, end - start + 1);
+    }
+
+    std::cout << "MARLIN: [" << response << "] (state=" << marlinState << ")" << std::endl;
 
     //If response starts with 'X:' interpret as positon data (after home or M114 ping)
     if (response.find("X:") == 0) {
@@ -244,9 +256,12 @@ void MarlinController::handleResponse(std::string response) {
 
         case homingX:
             //Already got position above thanks!
+            std::cout << "[DEBUG homingX] Received: '" << response << "'" << std::endl;
             if (response == "ok") {
                 marlinState = xHomed;
-                std::cout << "---------> X Homing complete" << std::endl;
+                std::cout << "---------> X Homing complete - state now: xHomed" << std::endl;
+            } else {
+                std::cout << "[DEBUG homingX] Still waiting for 'ok', got: '" << response << "'" << std::endl;
             }
 
             break;
