@@ -1129,7 +1129,7 @@ void phase9_z_next_can_state(bool reset = false) {
         cansLoaded--;
         std::cout << "Can dispensed. Remaining cans: " << cansLoaded << std::endl;
         
-        g_marlin->safeX();
+        //g_marlin->safeX();
 
         // Check if there are remaining cans to position
         if (cansLoaded > 0) {
