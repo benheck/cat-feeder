@@ -979,24 +979,9 @@ void phase5_x_rehoming_state(bool reset = false) {
         std::cout << "Entering phase 5: X Re-Homing..." << std::endl;
         started = true;
         startTime = std::chrono::system_clock::now();
-        g_marlin->safeX();  // Ensure X is past sensor before homing
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));  // Wait for safeX to complete
         g_marlin->homeX();
         saveStateToJSON();
         return;
-    }
-
-    // Check for timeout (30 seconds)
-    auto now = std::chrono::system_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - startTime).count();
-    if (elapsed > 30) {
-        std::cout << "ERROR: Phase 5 X homing timeout after " << elapsed << " seconds!" << std::endl;
-        std::cout << "Current Marlin state: " << g_marlin->getState() << std::endl;
-        // Force safeX and retry
-        g_marlin->safeX();
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        g_marlin->homeX();
-        startTime = std::chrono::system_clock::now();  // Reset timer
     }
 
     if (g_marlin->getState() == MarlinController::xHomed) {
@@ -1071,10 +1056,6 @@ void phase8_x_rehoming_final_state(bool reset = false) {
         std::cout << "Entering phase 8: X Re-Homing Final..." << std::endl;
         started = true;
         startTime = std::chrono::system_clock::now();
-        // Ensure X is past sensor before homing
-        g_marlin->safeX();
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));  // Wait for safeX to complete
-        std::cout << "Starting homeX() command..." << std::endl;
         g_marlin->homeX();
         saveStateToJSON();
         return;
@@ -1091,18 +1072,6 @@ void phase8_x_rehoming_final_state(bool reset = false) {
             std::cout << "Phase 8 waiting... Elapsed: " << elapsed << "s, Marlin state: " << g_marlin->getState() << std::endl;
             lastReported = elapsed;
         }
-    }
-    
-    if (elapsed > 30) {
-        std::cout << "ERROR: Phase 8 X homing timeout after " << elapsed << " seconds!" << std::endl;
-        std::cout << "Current Marlin state: " << g_marlin->getState() << std::endl;
-        std::cout << "Expected state: " << MarlinController::xHomed << std::endl;
-        // Force safeX and retry
-        g_marlin->safeX();
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        std::cout << "Retrying homeX() after timeout..." << std::endl;
-        g_marlin->homeX();
-        startTime = std::chrono::system_clock::now();  // Reset timer
     }
 
     if (g_marlin->getState() == MarlinController::xHomed) {
@@ -2566,9 +2535,7 @@ int main() {
 
         // Set machine state to track Z homing during startup
         std::cout << "Forcing initial Z homing sequence..." << std::endl;
-        std::cout << "Moving X past sensor before Z home..." << std::endl;
-        g_marlin->safeX();  // Ensure X is past sensor before Z homing
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));  // Wait for safeX to complete
+
         machineState = initial_z_homing;
         g_marlin->homeZ();          //Knowing that, do this Z home and will then offset so next can is in load position
         // saveStateToJSON();          // TEMPORARILY DISABLED - Save the startup state
