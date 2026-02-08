@@ -29,6 +29,7 @@ enum state {
     phase7_x_eject,
     phase8_x_rehoming_final,
     phase9_z_next_can,
+    eject_only_x_homing,        //Home X before eject-only operation
     eject_only_x_eject,         //Standalone eject operation
     eject_only_rehome,          //Rehome after eject-only
     initial_z_homing,
@@ -847,7 +848,7 @@ void pre_operation_z_homing_state(bool reset = false) {
             double ejectZ = g_marlin->zPos + openToEjectOffset;
             std::cout << "Moving Z to eject position: " << ejectZ << "mm" << std::endl;
             g_marlin->moveZTo(ejectZ);
-            machineState = eject_only_x_eject;  // Use dedicated eject-only state
+            machineState = eject_only_x_homing;  // Home X before ejecting
         } else {
             // For full dispense: proceed to normal X homing
             // Z is already positioned at the correct can open position
@@ -1145,6 +1146,31 @@ void phase9_z_next_can_state(bool reset = false) {
     }
 }
 
+void eject_only_x_homing_state(bool reset = false) {
+    static bool started = false;
+    
+    if (reset) {
+        started = false;
+        return;
+    }
+
+    if (!started) {
+        std::cout << "Eject-only: Homing X..." << std::endl;
+        started = true;
+        g_marlin->homeX();
+        machineState = eject_only_x_homing;
+        saveStateToJSON();
+        return;
+    }
+
+    if (g_marlin->getState() == MarlinController::xHomed) {
+        std::cout << "Eject-only: X Homed, proceeding to eject..." << std::endl;
+        machineState = eject_only_x_eject;
+        started = false;  // Reset for next time
+        saveStateToJSON();
+    }
+}
+
 void eject_only_x_eject_state(bool reset = false) {
     static bool started = false;
 
@@ -1256,6 +1282,7 @@ void resetAllPhases() {
     phase7_x_eject_state(true);
     phase8_x_rehoming_final_state(true);
     phase9_z_next_can_state(true);
+    eject_only_x_homing_state(true);
     eject_only_x_eject_state(true);
     eject_only_rehome_state(true);
     resetCanLoadPhases();
@@ -1305,6 +1332,10 @@ void dispenseStateMachine() {
 
         case phase9_z_next_can:
             phase9_z_next_can_state();
+            break;
+
+        case eject_only_x_homing:
+            eject_only_x_homing_state();
             break;
 
         case eject_only_x_eject:
@@ -1545,8 +1576,8 @@ std::string getCurrentDateString() {
     return ss.str();
 }
 
-// Function to format feed time for display
-std::string getFeedTimeString() {
+
+std::string getFeedTimeString() {                     // Function to format feed time for display
     if (feedTime == 0) {
         if (scheduleMode == INTERVAL_MODE) {
             return "N:Not Started";
