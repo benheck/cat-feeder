@@ -18,20 +18,60 @@ A simple, non-destructive web interface for monitoring and controlling your cat 
 
 ### Current Status Display
 - Cans remaining
-- Feed mode (INTERVAL/DAILY)
-- Next feed time
-- Operation status
+- Feed mode (INTERVAL/DAILY) with detailed schedule info
+- Next feed time with countdown timer
+- Operation status (machine state + Marlin state)
+- Position information (X and Z axis)
+- Weekend-only mode indicator
+- Health check status
+- Time remaining until next feed
 
 ### Remote Controls
 - Manual feed trigger (test dispense)
+- Eject-only operation (maintenance mode)
+- System termination command
 - Real-time status updates
 - Mobile-friendly interface
 
 ### API Endpoints
-- `GET /api/status` - Current feeder status
+
+#### Status Endpoints
+- `GET /api/status` - Comprehensive feeder status with all details
+  - Basic status (cans, states, positions)
+  - Schedule information (mode, intervals, next feed time)
+  - Countdown timer to next feed
+  - Weekend mode status
+  - Health check results
+  
+- `GET /api/schedule` - Detailed schedule configuration
+  - Interval mode settings
+  - Daily mode settings (time, weekend-only)
+  - Next feed calculation
+  - Current day status
+  
+- `GET /api/positions` - Detailed position information
+  - X axis position (opener mechanism)
+  - Z axis position (can stack)
+  - Eject position tracking
+  - Homing status
+  
+- `GET /api/system-info` - General system information
+  - State file freshness
+  - Machine and Marlin states
+  - Inventory tracking
+  - Health status
+
+#### Control Endpoints
 - `POST /api/feed` - Trigger manual feed
-- `GET /api/health` - Health check
-- `GET /docs` - Auto-generated API documentation
+- `POST /api/eject` - Trigger eject-only operation
+- `POST /api/terminate` - Terminate the feeder system
+
+#### Health Check
+- `GET /api/health` - Simple health check
+
+#### Documentation
+- `GET /docs` - Auto-generated API documentation (Swagger UI)
+- `GET /` - Web dashboard interface
 
 ## How It Works
 
