@@ -492,13 +492,13 @@ def get_dashboard_html() -> str:
                 const timeRemaining = document.getElementById('time-remaining');
                 if (data.time_remaining_until_feed) {
                     if (data.time_remaining_until_feed === "Overdue") {
-                        timeRemaining.textContent = '⚠️ Feed is overdue!';
+                        timeRemaining.textContent = 'Feed is overdue!';
                         timeRemaining.style.color = '#dc3545';
                     } else if (data.time_remaining_until_feed === "Not scheduled") {
                         timeRemaining.textContent = 'No feed scheduled';
                         timeRemaining.style.color = '#6c757d';
                     } else {
-                        timeRemaining.textContent = '⏱️ ' + data.time_remaining_until_feed + ' remaining';
+                        timeRemaining.textContent = data.time_remaining_until_feed + ' remaining';
                         timeRemaining.style.color = '#007bff';
                     }
                 }
@@ -512,7 +512,7 @@ def get_dashboard_html() -> str:
                     if (data.daily_weekend_only) {
                         dailyText += ' (Weekends Only)';
                         if (!data.feeding_enabled) {
-                            dailyText += ' - 🚫 Feeding disabled (weekday)';
+                            dailyText += ' - Feeding disabled (weekday)';
                         }
                     }
                     feedModeDetails.textContent = dailyText;
@@ -560,7 +560,7 @@ def get_dashboard_html() -> str:
             } catch (error) {
                 console.error('Error fetching status:', error);
                 document.getElementById('message').innerHTML = 
-                    '<span class="warning">⚠️ Error connecting to feeder - Check if cat feeder service is running</span>';
+                    '<span class="warning">Error connecting to feeder - Check if cat feeder service is running</span>';
                 // Show error in status fields too
                 document.getElementById('cans-left').textContent = 'Error';
                 document.getElementById('feed-mode').textContent = 'Not Connected';
@@ -644,7 +644,7 @@ def get_dashboard_html() -> str:
         }
 
         async function rebootSystem() {
-            if (!confirm('⚠️ REBOOT SYSTEM?\n\nThis will reboot the entire Raspberry Pi.\n\nAre you sure?')) {
+            if (!confirm('REBOOT SYSTEM?\\n\\nThis will reboot the entire Raspberry Pi.\\n\\nAre you sure?')) {
                 return;
             }
             
@@ -656,7 +656,7 @@ def get_dashboard_html() -> str:
                 const data = await response.json();
                 
                 if (data.success) {
-                    showMessage('🔄 Reboot command sent! System will reboot in a few seconds...', 'warning');
+                    showMessage('Reboot command sent! System will reboot in a few seconds...', 'warning');
                     // Stop auto-refresh since system is rebooting
                     stopAutoRefresh();
                 } else {
