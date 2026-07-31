@@ -477,8 +477,11 @@ def get_dashboard_html() -> str:
 
         async function fetchStatus() {
             try {
+                console.log('Fetching status from /api/status...');
                 const response = await fetch('/api/status');
+                console.log('Response status:', response.status);
                 const data = await response.json();
+                console.log('Data received:', data);
                 
                 // Basic status
                 document.getElementById('cans-left').textContent = data.cans_left;
@@ -557,7 +560,13 @@ def get_dashboard_html() -> str:
             } catch (error) {
                 console.error('Error fetching status:', error);
                 document.getElementById('message').innerHTML = 
-                    '<span class="warning">Error connecting to feeder</span>';
+                    '<span class="warning">⚠️ Error connecting to feeder - Check if cat feeder service is running</span>';
+                // Show error in status fields too
+                document.getElementById('cans-left').textContent = 'Error';
+                document.getElementById('feed-mode').textContent = 'Not Connected';
+                document.getElementById('next-feed').textContent = 'Service not running';
+                document.getElementById('operation-status').textContent = 'OFFLINE';
+                document.getElementById('operation-status').className = 'status-value warning';
             }
         }
 
