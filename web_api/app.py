@@ -163,6 +163,19 @@ async def eject_only():
     else:
         raise HTTPException(status_code=500, detail="Failed to send command")
 
+@app.post("/api/reboot")
+async def reboot_system():
+    """Reboot the Raspberry Pi"""
+    command = {
+        "action": "reboot",
+        "source": "web_api"
+    }
+    
+    if write_command(command):
+        return {"success": True, "message": "Reboot command sent - system will reboot"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send reboot command")
+
 @app.post("/api/terminate")
 async def terminate_system():
     """Terminate the cat feeder control system"""
@@ -442,7 +455,14 @@ def get_dashboard_html() -> str:
             <button class="button" onclick="manualFeed()" id="feed-btn" style="display: block; width: 100%; margin-bottom: 10px;">
                 🍽️ Manual Feed
             </button>
-            <button class="button" onclick="terminateSystem()" id="terminate-btn" style="display: block; width: 100%; margin-top: 20px; background-color: #dc3545;">
+            
+            <div style="margin-top: 40px; margin-bottom: 40px; border-top: 2px solid #dee2e6; padding-top: 30px;">
+                <button class="button" onclick="rebootSystem()" id="reboot-btn" style="display: block; width: 100%; margin-bottom: 30px; background-color: #ff6b35;">
+                    🔄 REBOOT SYSTEM
+                </button>
+            </div>
+            
+            <button class="button" onclick="terminateSystem()" id="terminate-btn" style="display: block; width: 100%; background-color: #dc3545;">
                 🛑 Terminate System
             </button>
         </div>
@@ -611,6 +631,33 @@ def get_dashboard_html() -> str:
                 console.error('Error:', error);
             } finally {
                 setTimeout(() => { terminateBtn.disabled = false; }, 5000);
+            }
+        }
+
+        async function rebootSystem() {
+            if (!confirm('⚠️ REBOOT SYSTEM?\n\nThis will reboot the entire Raspberry Pi.\n\nAre you sure?')) {
+                return;
+            }
+            
+            const rebootBtn = document.getElementById('reboot-btn');
+            rebootBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/reboot', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('🔄 Reboot command sent! System will reboot in a few seconds...', 'warning');
+                    // Stop auto-refresh since system is rebooting
+                    stopAutoRefresh();
+                } else {
+                    showMessage('Failed to send reboot command', 'warning');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'warning');
+                console.error('Error:', error);
+            } finally {
+                setTimeout(() => { rebootBtn.disabled = false; }, 5000);
             }
         }
 

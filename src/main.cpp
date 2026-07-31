@@ -1942,6 +1942,16 @@ void checkWebCommands() {               // Check for web commands (non-destructi
         } else if (action == "terminate") {
             std::cout << "Web API: Terminate command received - initiating graceful shutdown..." << std::endl;
             g_shutdown_requested = true;
+        } else if (action == "reboot") {
+            std::cout << "Web API: Reboot command received - rebooting system..." << std::endl;
+            // First trigger graceful shutdown of our application
+            g_shutdown_requested = true;
+            // Then schedule a system reboot after a brief delay
+            std::thread([]() {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                std::cout << "Executing system reboot..." << std::endl;
+                system("sudo reboot");
+            }).detach();
         }
         
         // Delete the command file after processing
