@@ -527,16 +527,6 @@ def get_dashboard_html() -> str:
                 const now = new Date();
                 lastUpdated.textContent = `Last updated: ${now.toLocaleTimeString()} | System last update: ${data.last_update_from_system}`;
                 
-            } catch (error) {
-                console.error('Error fetching status:', error);
-                document.getElementById('message').innerHTML = 
-                    '<span class="warning">Error connecting to feeder</span>';
-            }
-        }
-                } else {
-                    healthAlert.classList.remove('active');
-                }
-                
                 // Disable buttons if operation is running
                 const feedBtn = document.getElementById('feed-btn');
                 const ejectBtn = document.getElementById('eject-btn');
@@ -544,14 +534,10 @@ def get_dashboard_html() -> str:
                 ejectBtn.disabled = data.operation_running;
                 // Terminate button is never disabled - always available for emergency stop
                 
-                document.getElementById('last-updated').textContent = 
-                    'Last updated: ' + new Date().toLocaleTimeString();
-                
-                clearMessage();
-                
             } catch (error) {
-                showMessage('Error fetching status: ' + error.message, 'warning');
-                console.error('Error:', error);
+                console.error('Error fetching status:', error);
+                document.getElementById('message').innerHTML = 
+                    '<span class="warning">Error connecting to feeder</span>';
             }
         }
 
