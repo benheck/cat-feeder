@@ -1943,19 +1943,42 @@ void checkWebCommands() {               // Check for web commands (non-destructi
             std::cout << "Web API: Terminate command received - initiating graceful shutdown..." << std::endl;
             g_shutdown_requested = true;
         } else if (action == "reboot") {
-            std::cout << "Web API: Reboot command received - rebooting system..." << std::endl;
-            // First trigger graceful shutdown of our application
-            g_shutdown_requested = true;
-            // Then schedule a system reboot after a brief delay
+            std::cout << "=== WEB API: REBOOT COMMAND RECEIVED ===" << std::endl;
+            std::cout << "Initiating system reboot in 3 seconds..." << std::endl;
+            
+            // Execute reboot immediately - no need to shutdown gracefully since reboot will kill everything
             std::thread([]() {
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-                std::cout << "Executing system reboot..." << std::endl;
+                for (int i = 3; i > 0; i--) {
+                    std::cout << "Rebooting in " << i << "..." << std::endl;
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+                std::cout << "Executing: sudo reboot" << std::endl;
+                
+                // Try reboot command
                 int result = system("sudo reboot");
+                
                 if (result != 0) {
-                    std::cerr << "ERROR: Reboot command failed with exit code " << result << std::endl;
-                    std::cerr << "You may need to run: ./setup_reboot_permissions.sh" << std::endl;
+                    std::cerr << "=== REBOOT FAILED ===" << std::endl;
+                    std::cerr << "Exit code: " << result << std::endl;
+                    std::cerr << "Possible causes:" << std::endl;
+                    std::cerr << "  1. Sudo permissions not configured" << std::endl;
+                    std::cerr << "     Run: ./setup_reboot_permissions.sh" << std::endl;
+                    std::cerr << "  2. Password required for sudo" << std::endl;
+                    std::cerr << "     Check /etc/sudoers.d/cat-feeder-reboot exists" << std::endl;
+                    std::cerr << "Trying alternative: systemctl reboot" << std::endl;
+                    
+                    // Try alternative reboot method
+                    result = system("sudo systemctl reboot");
+                    if (result != 0) {
+                        std::cerr << "Alternative reboot also failed with exit code: " << result << std::endl;
+                    }
+                } else {
+                    std::cout << "Reboot command executed successfully" << std::endl;
                 }
             }).detach();
+            
+            // Don't set g_shutdown_requested - let the reboot kill the app
+            // This ensures the thread has time to execute
         }
         
         // Delete the command file after processing
