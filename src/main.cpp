@@ -1950,7 +1950,11 @@ void checkWebCommands() {               // Check for web commands (non-destructi
             std::thread([]() {
                 std::this_thread::sleep_for(std::chrono::seconds(2));
                 std::cout << "Executing system reboot..." << std::endl;
-                system("sudo reboot");
+                int result = system("sudo reboot");
+                if (result != 0) {
+                    std::cerr << "ERROR: Reboot command failed with exit code " << result << std::endl;
+                    std::cerr << "You may need to run: ./setup_reboot_permissions.sh" << std::endl;
+                }
             }).detach();
         }
         

@@ -10,7 +10,14 @@ A simple, non-destructive web interface for monitoring and controlling your cat 
    ./start.sh
    ```
 
-2. **Access the dashboard:**
+2. **Enable reboot permissions (one-time setup):**
+   ```bash
+   cd /home/ben/opener_code
+   ./setup_reboot_permissions.sh
+   ```
+   This allows the web API to reboot the system without requiring a password.
+
+3. **Access the dashboard:**
    - Local: http://localhost:8000
    - Via Tailscale: http://[your-pi-tailscale-ip]:8000
 
