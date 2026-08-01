@@ -119,9 +119,10 @@ void MarlinController::safeX() {
     //Set to relative positioning
     sendGCode("G91");
     //Move X past home
-    sendGCode("G0 X30 F600");
+    sendGCode("G0 X20 F600");
     //Set back to absolute positioning
     sendGCode("G90");
+    //Next phase is to re-home X
     
     std::cout << "[safeX] Commands sent, state after: " << marlinState << std::endl;
 
